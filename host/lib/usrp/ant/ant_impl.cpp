@@ -154,7 +154,7 @@ static device_addrs_t ant_find(const device_addr_t& hint)
             // make a boost asio ipv4 with the raw addr in host byte order1
 
             device_addr_t mp_addr;
-            mp_addr["type"] = "e200";
+            mp_addr["type"] = "ant";
             mp_addr["addr"] = udp_transport->get_recv_addr();
 
             udp_simple::sptr ctrl_xport = udp_simple::make_connected(
@@ -171,9 +171,15 @@ static device_addrs_t ant_find(const device_addr_t& hint)
                 memcpy(serial,ctrl_data_in->serial_all,sizeof(serial));
                 std::string serial_str((char *)serial);
                 std::transform(serial_str.begin(),serial_str.end(),serial_str.begin(),::toupper);
+                uint8_t board_version[8];
+                memcpy(board_version,ctrl_data_in->board_version,sizeof(board_version));
+                std::string board_str((char*)board_version,sizeof(board_version));
+                if(board_str.at(0) != 'E')
+                    mp_addr["product"] = "E200";
+                else
+                    mp_addr["product"] = board_str;
                 mp_addr["serial"] = serial_str;
                 mp_addr["name"] = "ANTSDR-E200";
-                mp_addr["product"] = "E200";
                 // found the device,open up for communication!
                 ant_addrs.push_back(mp_addr);
             } else {
