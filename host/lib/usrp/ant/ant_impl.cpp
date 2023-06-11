@@ -295,7 +295,8 @@ ant_impl::ant_impl(const uhd::device_addr_t &device_addr)
                 );
 
         _gpsdo_capable = 0;
-
+        if(device_addr["product"] == "E310  v2")
+            _gpsdo_capable = 1;
         ////////////////////////////////////////////////////////////////////
         // Set up frontend mapping
         ////////////////////////////////////////////////////////////////////
@@ -379,7 +380,7 @@ ant_impl::ant_impl(const uhd::device_addr_t &device_addr)
             if ((_local_ctrl->peek32(RB32_CORE_STATUS) & 0xff) != ANT_GPSDO_ST_NONE) {
                 UHD_LOGGER_INFO("ANT") << "Detecting internal GPSDO.... " << std::flush;
                 try {
-                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart);
+                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart,true);
                 } catch (std::exception &e) {
                     UHD_LOGGER_ERROR("ANT")
                             << "An error occurred making GPSDO control: " << e.what();
@@ -1010,12 +1011,12 @@ void ant_impl::check_fpga_compat(void)
                                    ? B205_FPGA_COMPAT_NUM
                                    : B200_FPGA_COMPAT_NUM);
     if (compat_major != expected) {
-      //  throw uhd::runtime_error(str(
-      //      boost::format("Expected FPGA compatibility number %d, but got %d:\n"
-      //                    "The FPGA build is not compatible with the host code build.\n"
-      //                    "%s")
-      //      % int(expected) % compat_major
-      //      % print_utility_error("uhd_images_downloader.py")));
+        throw uhd::runtime_error(str(
+            boost::format("Expected FPGA compatibility number %d, but got %d:\n"
+                          "The FPGA build is not compatible with the host code build.\n"
+                          "%s")
+            % int(expected) % compat_major
+            % print_utility_error("uhd_images_downloader.py")));
     }
     _tree->create<std::string>("/mboards/0/fpga_version")
         .set(str(boost::format("%u.%u") % compat_major % compat_minor));
