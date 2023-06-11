@@ -110,8 +110,3 @@ set_property -dict {PACKAGE_PIN U17 IOSTANDARD LVCMOS18} [get_ports {CAT_P0_D[0]
 # create_clock -name rx_clk       -period  4 [get_ports rx_clk_in_p]
 
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
-
-
-
-set_false_path -from [get_pins clk40_reset_gen/reset_out_reg/C] -to [get_pins {eth_internal_i/eth_dma_reg_mst_i/rdresp_fifo_2clk_i/i_rst_sync_i/synchronizer_false_path/stages[0].value_reg[0][0]/D}];
-set_false_path -from [get_pins clk40_reset_gen/reset_out_reg/C] -to [get_pins {u_e200_rgmii_wrapper/sfp_reg_mst_i/rdresp_fifo_2clk_i/i_rst_sync_i/synchronizer_false_path/stages[0].value_reg[0][0]/D}];

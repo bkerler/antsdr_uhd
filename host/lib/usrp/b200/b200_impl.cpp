@@ -38,6 +38,43 @@ namespace {
 constexpr int64_t REENUMERATION_TIMEOUT_MS = 3000;
 }
 
+// u220
+class u220_ad9361_client_t : public ad9361_params
+{
+public:
+    ~u220_ad9361_client_t() override {}
+    double get_band_edge(frequency_band_t band) override
+    {
+        switch (band) {
+            case AD9361_RX_BAND0:
+                return 0; // Port C
+            case AD9361_RX_BAND1:
+                return 0; // Port B
+            case AD9361_TX_BAND0:
+                return 0; // Port B
+            default:
+                return 0;
+        }
+    }
+    clocking_mode_t get_clocking_mode() override
+    {
+        return clocking_mode_t::AD9361_XTAL_N_CLK_PATH;
+    }
+    digital_interface_mode_t get_digital_interface_mode() override
+    {
+        return AD9361_DDR_FDD_LVCMOS;
+    }
+    digital_interface_delays_t get_digital_interface_timing() override
+    {
+        digital_interface_delays_t delays;
+        delays.rx_clk_delay  = 0;
+        delays.rx_data_delay = 0xF;
+        delays.tx_clk_delay  = 0;
+        delays.tx_data_delay = 0xF;
+        return delays;
+    }
+};
+
 // B200 + B210:
 class b200_ad9361_client_t : public ad9361_params
 {
@@ -445,6 +482,12 @@ b200_impl::b200_impl(
         _gpio_state.swap_atr = 0; // ATRs for radio0 are mapped to FE1
     }
 
+    if(device_addr["name"] == "u220"){
+        _fe1                 = 0;
+        _fe2                 = 1;
+        _gpio_state.swap_atr = 0;
+    }
+
     ////////////////////////////////////////////////////////////////////
     // Load the FPGA image, then reset GPIF
     ////////////////////////////////////////////////////////////////////
@@ -492,8 +535,15 @@ b200_impl::b200_impl(
     _async_task_data.reset(new AsyncTaskData());
     _async_task_data->async_md.reset(new async_md_type(1000 /*messages deep*/));
     if (_gpsdo_capable) {
-        _async_task_data->gpsdo_uart =
-            b200_uart::make(_ctrl_transport, B200_TX_GPS_UART_SID);
+        if(device_addr["name"] == "u220"){
+            _async_task_data->gpsdo_uart =
+            b200_uart::make(_ctrl_transport, B200_TX_GPS_UART_SID,9600);
+        }
+        else{
+            _async_task_data->gpsdo_uart =
+            b200_uart::make(_ctrl_transport, B200_TX_GPS_UART_SID,115200);
+        }
+        
     }
     _async_task = uhd::msg_task::make(std::bind(
         &b200_impl::handle_async_task, this, _ctrl_transport, _async_task_data));
@@ -521,7 +571,11 @@ b200_impl::b200_impl(
         if ((_local_ctrl->peek32(RB32_CORE_STATUS) & 0xff) != B200_GPSDO_ST_NONE) {
             UHD_LOGGER_INFO("B200") << "Detecting internal GPSDO.... " << std::flush;
             try {
-                _gps = gps_ctrl::make(_async_task_data->gpsdo_uart);
+                if(device_addr["name"] == "u220"){
+                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart,true);
+                }else{
+                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart,false);
+                }
             } catch (std::exception& e) {
                 UHD_LOGGER_ERROR("B200")
                     << "An error occurred making GPSDO control: " << e.what();
@@ -623,6 +677,10 @@ b200_impl::b200_impl(
     } else {
         client_settings = std::make_shared<b200_ad9361_client_t>();
     }
+
+    if(device_addr["name"] == "u220")
+        client_settings = std::make_shared<u220_ad9361_client_t>();
+
     _codec_ctrl = ad9361_ctrl::make_spi(client_settings, _spi_iface, AD9361_SLAVENO);
 
     ////////////////////////////////////////////////////////////////////

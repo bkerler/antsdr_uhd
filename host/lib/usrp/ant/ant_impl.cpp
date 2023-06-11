@@ -215,8 +215,11 @@ static device_addrs_t ant_find(const device_addr_t& hint)
                     mp_addr["product"] = "E200";
                 else
                     mp_addr["product"] = board_str;
-                mp_addr["serial"] = serial_str;
-                mp_addr["name"] = "ANTSDR-E200";
+                mp_addr["serial"] = serial_str.substr(0,32);
+                if(mp_addr["product"] == "E310  v2")
+                    mp_addr["name"] = "ANTSDR-E310";
+                else
+                    mp_addr["name"] = "ANTSDR-E200";
                 // found the device,open up for communication!
                 ant_addrs.push_back(mp_addr);
             } else {
@@ -295,7 +298,8 @@ ant_impl::ant_impl(const uhd::device_addr_t &device_addr)
                 );
 
         _gpsdo_capable = 0;
-
+        if(device_addr["product"] == "E310  v2")
+            _gpsdo_capable = 1;
         ////////////////////////////////////////////////////////////////////
         // Set up frontend mapping
         ////////////////////////////////////////////////////////////////////
@@ -379,7 +383,7 @@ ant_impl::ant_impl(const uhd::device_addr_t &device_addr)
             if ((_local_ctrl->peek32(RB32_CORE_STATUS) & 0xff) != ANT_GPSDO_ST_NONE) {
                 UHD_LOGGER_INFO("ANT") << "Detecting internal GPSDO.... " << std::flush;
                 try {
-                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart);
+                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart,true);
                 } catch (std::exception &e) {
                     UHD_LOGGER_ERROR("ANT")
                             << "An error occurred making GPSDO control: " << e.what();
