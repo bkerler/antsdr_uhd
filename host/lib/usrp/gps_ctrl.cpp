@@ -228,7 +228,6 @@ public:
         _mpsdr = is_mp;
         // first we look for an internal GPSDO
         _flush(); // get whatever junk is in the rx buffer right now, and throw it away
-
         _send("*IDN?\r\n"); // request identity from the GPSDO
         std::this_thread::sleep_for(std::chrono::milliseconds(GPSDO_COMMAND_DELAY_MS));
         if(_mpsdr){
