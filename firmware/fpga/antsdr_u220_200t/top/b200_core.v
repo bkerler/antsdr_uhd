@@ -367,4 +367,52 @@ module b200_core
     assign r1_tx_tready = r1_tx_tready;
 
 `endif // !`ifdef TARGET_B210
+
+   /*******************************************************************
+    * Debug UART for FX3
+    ******************************************************************/
+
+   wire        debug_stb;
+   wire [31:0] debug_data;
+   wire [7:0]  debug_addr;
+   wire [31:0] debug_serial;
+
+
+   serial_to_settings serial_to_settings_i1
+     (
+      .clk(bus_clk),
+      .reset(bus_rst),
+      .scl(debug_scl),
+      .sda(debug_sda),
+      .set_stb(debug_stb),
+      .set_addr(debug_addr),
+      .set_data(debug_data),
+      .debug(debug_serial)
+      );
+
+   // Nasty Hack to convert settings to wishbone crudely.
+   reg    wb_stb;
+   wire   wb_ack_o;
+
+   always @(posedge bus_clk)
+     wb_stb <= debug_stb ? 1 : ((wb_ack_o) ? 0 : wb_stb);
+
+   simple_uart debug_uart
+   (
+      .clk_i(bus_clk),
+      .rst_i(bus_rst),
+      .we_i(wb_stb),
+      .stb_i(wb_stb),
+      .cyc_i(wb_stb),
+      .ack_o(wb_ack_o),
+      .adr_i(debug_addr[2:0]),
+      .dat_i(debug_data[31:0]),
+      .dat_o(),
+      .rx_int_o(),
+      .tx_int_o(),
+      .tx_o(debug_txd),
+      .rx_i(debug_rxd),
+      .baud_o()
+   );
+
 endmodule // b200_core

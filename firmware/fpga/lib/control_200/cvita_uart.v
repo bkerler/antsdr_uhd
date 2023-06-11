@@ -164,4 +164,20 @@ module cvita_uart
     assign fifo_write = (txd_state == TXD_STATE_RECV_BODY) && i_tvalid && i_tready;
     assign i_tready = !fifo_full;
 
+
+//     wire [63:0] probe0;
+//     assign probe0 = {
+//         clkdiv,
+//         txd_state,
+//         txd_state
+//     };
+
+
+//     ila_0 u_ila_0 (
+// 	.clk(clk), // input wire clk
+
+
+// 	.probe0(probe0) // input wire [63:0] probe0
+// );
+
 endmodule // cvita_uart

@@ -30,11 +30,10 @@ module ppsloop#(
   // reference pps to discilpline the VCTX|CXO to, from GPS or EXT in
 
   wire clk_200M_o, clk;
-  BUFG x_clk_gen ( .I(clk_200M_o), .O(clk));
   wire clk_40M;
   wire pps_loop_rst;
-
-  assign clk_int40 = clk_40M;
+  BUFG x_clk_gen ( .I(clk_200M_o), .O(clk));
+  BUFG x_clk_gen_40 ( .I(clk_40M), .O(clk_int40));
   assign pps_loop_rst = ~plllck;
 
   wire n_pps = (refsel==2'b01) | (refsel==2'b10);
