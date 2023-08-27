@@ -30,3 +30,6 @@ SensorValue = lib.types.sensor_value
 TuneRequestPolicy = lib.types.tune_request_policy
 TuneRequest = lib.types.tune_request
 TuneResult = lib.types.tune_result
+separate_device_addr = lib.types.separate_device_addr
+combine_device_addrs = lib.types.combine_device_addrs
+Direction = lib.types.direction_t

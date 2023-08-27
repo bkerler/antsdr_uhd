@@ -38,43 +38,6 @@ namespace {
 constexpr int64_t REENUMERATION_TIMEOUT_MS = 3000;
 }
 
-// u220
-class u220_ad9361_client_t : public ad9361_params
-{
-public:
-    ~u220_ad9361_client_t() override {}
-    double get_band_edge(frequency_band_t band) override
-    {
-        switch (band) {
-            case AD9361_RX_BAND0:
-                return 0; // Port C
-            case AD9361_RX_BAND1:
-                return 0; // Port B
-            case AD9361_TX_BAND0:
-                return 0; // Port B
-            default:
-                return 0;
-        }
-    }
-    clocking_mode_t get_clocking_mode() override
-    {
-        return clocking_mode_t::AD9361_XTAL_N_CLK_PATH;
-    }
-    digital_interface_mode_t get_digital_interface_mode() override
-    {
-        return AD9361_DDR_FDD_LVCMOS;
-    }
-    digital_interface_delays_t get_digital_interface_timing() override
-    {
-        digital_interface_delays_t delays;
-        delays.rx_clk_delay  = 0;
-        delays.rx_data_delay = 0xF;
-        delays.tx_clk_delay  = 0;
-        delays.tx_data_delay = 0xF;
-        return delays;
-    }
-};
-
 // B200 + B210:
 class b200_ad9361_client_t : public ad9361_params
 {
@@ -338,6 +301,7 @@ b200_impl::b200_impl(
     _revision(0)
     , _enable_user_regs(device_addr.has_key("enable_user_regs"))
     , _time_source(UNKNOWN)
+    , _time_set_with_pps(false)
     , _tick_rate(0.0) // Forces a clock initialization at startup
 {
     _tree                 = property_tree::make();
@@ -482,12 +446,6 @@ b200_impl::b200_impl(
         _gpio_state.swap_atr = 0; // ATRs for radio0 are mapped to FE1
     }
 
-    if(device_addr["name"] == "u220"){
-        _fe1                 = 0;
-        _fe2                 = 1;
-        _gpio_state.swap_atr = 0;
-    }
-
     ////////////////////////////////////////////////////////////////////
     // Load the FPGA image, then reset GPIF
     ////////////////////////////////////////////////////////////////////
@@ -535,15 +493,8 @@ b200_impl::b200_impl(
     _async_task_data.reset(new AsyncTaskData());
     _async_task_data->async_md.reset(new async_md_type(1000 /*messages deep*/));
     if (_gpsdo_capable) {
-        if(device_addr["name"] == "u220"){
-            _async_task_data->gpsdo_uart =
-            b200_uart::make(_ctrl_transport, B200_TX_GPS_UART_SID,9600);
-        }
-        else{
-            _async_task_data->gpsdo_uart =
-            b200_uart::make(_ctrl_transport, B200_TX_GPS_UART_SID,115200);
-        }
-        
+        _async_task_data->gpsdo_uart =
+            b200_uart::make(_ctrl_transport, B200_TX_GPS_UART_SID);
     }
     _async_task = uhd::msg_task::make(std::bind(
         &b200_impl::handle_async_task, this, _ctrl_transport, _async_task_data));
@@ -551,7 +502,7 @@ b200_impl::b200_impl(
     ////////////////////////////////////////////////////////////////////
     // Local control endpoint
     ////////////////////////////////////////////////////////////////////
-    _local_ctrl = radio_ctrl_core_3000::make(false /*lilE*/,
+    _local_ctrl = b200_radio_ctrl_core::make(false /*lilE*/,
         _ctrl_transport,
         zero_copy_if::sptr() /*null*/,
         B200_LOCAL_CTRL_SID);
@@ -571,11 +522,7 @@ b200_impl::b200_impl(
         if ((_local_ctrl->peek32(RB32_CORE_STATUS) & 0xff) != B200_GPSDO_ST_NONE) {
             UHD_LOGGER_INFO("B200") << "Detecting internal GPSDO.... " << std::flush;
             try {
-                if(device_addr["name"] == "u220"){
-                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart,true);
-                }else{
-                    _gps = gps_ctrl::make(_async_task_data->gpsdo_uart,false);
-                }
+                _gps = gps_ctrl::make(_async_task_data->gpsdo_uart);
             } catch (std::exception& e) {
                 UHD_LOGGER_ERROR("B200")
                     << "An error occurred making GPSDO control: " << e.what();
@@ -677,10 +624,6 @@ b200_impl::b200_impl(
     } else {
         client_settings = std::make_shared<b200_ad9361_client_t>();
     }
-
-    if(device_addr["name"] == "u220")
-        client_settings = std::make_shared<u220_ad9361_client_t>();
-
     _codec_ctrl = ad9361_ctrl::make_spi(client_settings, _spi_iface, AD9361_SLAVENO);
 
     ////////////////////////////////////////////////////////////////////
@@ -773,11 +716,9 @@ b200_impl::b200_impl(
     _tree->create<time_spec_t>(mb_path / "time" / "pps")
         .set_publisher(
             std::bind(&time_core_3000::get_time_last_pps, _radio_perifs[0].time64));
-    for (radio_perifs_t& perif : _radio_perifs) {
-        _tree->access<time_spec_t>(mb_path / "time" / "pps")
-            .add_coerced_subscriber(std::bind(
-                &time_core_3000::set_time_next_pps, perif.time64, std::placeholders::_1));
-    }
+    _tree->access<time_spec_t>(mb_path / "time" / "pps")
+        .add_coerced_subscriber(std::bind(
+            &b200_impl::set_time_next_pps, this, std::placeholders::_1));
 
     // setup time source props
     const std::vector<std::string> time_sources =
@@ -807,7 +748,8 @@ b200_impl::b200_impl(
     // front panel gpio
     ////////////////////////////////////////////////////////////////////
     _radio_perifs[0].fp_gpio =
-        gpio_atr_3000::make(_radio_perifs[0].ctrl, TOREG(SR_FP_GPIO), RB32_FP_GPIO);
+        gpio_atr_3000::make(_radio_perifs[0].ctrl,
+            gpio_atr_offsets::make_default(TOREG(SR_FP_GPIO), RB32_FP_GPIO));
     for (const auto& attr : gpio_attr_map) {
         switch (attr.first) {
             case usrp::gpio_atr::GPIO_SRC:
@@ -926,22 +868,22 @@ void b200_impl::setup_radio(const size_t dspno)
     ////////////////////////////////////////////////////////////////////
     // radio control
     ////////////////////////////////////////////////////////////////////
-    perif.ctrl = radio_ctrl_core_3000::make(
+    perif.ctrl = b200_radio_ctrl_core::make(
         false /*lilE*/, _ctrl_transport, zero_copy_if::sptr() /*null*/, sid);
     perif.ctrl->hold_task(_async_task);
     _async_task_data->radio_ctrl[dspno] = perif.ctrl; // weak
     _tree->access<time_spec_t>(mb_path / "time" / "cmd")
         .add_coerced_subscriber(std::bind(
-            &radio_ctrl_core_3000::set_time, perif.ctrl, std::placeholders::_1));
+            &b200_radio_ctrl_core::set_time, perif.ctrl, std::placeholders::_1));
     _tree->access<double>(mb_path / "tick_rate")
         .add_coerced_subscriber(std::bind(
-            &radio_ctrl_core_3000::set_tick_rate, perif.ctrl, std::placeholders::_1));
+            &b200_radio_ctrl_core::set_tick_rate, perif.ctrl, std::placeholders::_1));
     this->register_loopback_self_test(perif.ctrl);
 
     ////////////////////////////////////////////////////////////////////
     // Set up peripherals
     ////////////////////////////////////////////////////////////////////
-    perif.atr = gpio_atr_3000::make_write_only(perif.ctrl, TOREG(SR_ATR));
+    perif.atr = gpio_atr_3000::make(perif.ctrl, gpio_atr_offsets::make_write_only(TOREG(SR_ATR)));
     perif.atr->set_atr_mode(MODE_ATR, 0xFFFFFFFF);
     // create rx dsp control objects
     perif.framer = rx_vita_core_3000::make(perif.ctrl, TOREG(SR_RX_CTRL));
@@ -1362,11 +1304,28 @@ void b200_impl::set_time(const uhd::time_spec_t& t)
         perif.time64->set_time_sync(t);
     _local_ctrl->poke32(TOREG(SR_CORE_SYNC), 1 << 2 | uint32_t(_time_source));
     _local_ctrl->poke32(TOREG(SR_CORE_SYNC), _time_source);
+    _time_set_with_pps = false;
+}
+
+void b200_impl::set_time_next_pps(const uhd::time_spec_t& t)
+{
+    for (radio_perifs_t& perif : _radio_perifs)
+        perif.time64->set_time_next_pps(t);
+    _time_set_with_pps = true;
 }
 
 void b200_impl::sync_times()
 {
-    set_time(_radio_perifs[0].time64->get_time_now());
+    if (_time_set_with_pps) {
+        UHD_LOG_DEBUG("B200", "Re-synchronizing time using PPS");
+        uhd::time_spec_t time_last_pps = _radio_perifs[0].time64->get_time_last_pps();
+        while (_radio_perifs[0].time64->get_time_last_pps() == time_last_pps) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        set_time_next_pps(time_last_pps + 2.0);
+    } else {
+        set_time(_radio_perifs[0].time64->get_time_now());
+    }
 }
 
 /***********************************************************************
@@ -1441,9 +1400,9 @@ void b200_impl::update_atrs(void)
         const bool enb_tx     = bool(perif.tx_streamer.lock());
         const bool is_rx2     = perif.ant_rx2;
         const uint32_t rxonly = (enb_rx) ? ((is_rx2) ? STATE_RX1_RX2 : STATE_RX1_TXRX)
-                                         : STATE_OFF;
-        const uint32_t txonly = (enb_tx) ? (STATE_TX1_TXRX) : STATE_OFF;
-        uint32_t fd           = STATE_OFF;
+                                       : STATE_RX1_OFF;
+        const uint32_t txonly = (enb_tx) ? (STATE_TX1_TXRX) : STATE_RX1_OFF;
+        uint32_t fd           = STATE_RX1_OFF;
         if (enb_rx and enb_tx)
             fd = STATE_FDX1_TXRX;
         if (enb_rx and not enb_tx)
@@ -1451,7 +1410,7 @@ void b200_impl::update_atrs(void)
         if (not enb_rx and enb_tx)
             fd = txonly;
         gpio_atr_3000::sptr atr = perif.atr;
-        atr->set_atr_reg(ATR_REG_IDLE, STATE_OFF);
+        atr->set_atr_reg(ATR_REG_IDLE, STATE_RX1_OFF);
         atr->set_atr_reg(ATR_REG_RX_ONLY, rxonly);
         atr->set_atr_reg(ATR_REG_TX_ONLY, txonly);
         atr->set_atr_reg(ATR_REG_FULL_DUPLEX, fd);
@@ -1462,9 +1421,9 @@ void b200_impl::update_atrs(void)
         const bool enb_tx     = bool(perif.tx_streamer.lock());
         const bool is_rx2     = perif.ant_rx2;
         const uint32_t rxonly = (enb_rx) ? ((is_rx2) ? STATE_RX2_RX2 : STATE_RX2_TXRX)
-                                         : STATE_OFF;
-        const uint32_t txonly = (enb_tx) ? (STATE_TX2_TXRX) : STATE_OFF;
-        uint32_t fd           = STATE_OFF;
+                                         : STATE_RX2_OFF;
+        const uint32_t txonly = (enb_tx) ? (STATE_TX2_TXRX) : STATE_RX2_OFF;
+        uint32_t fd           = STATE_RX2_OFF;
         if (enb_rx and enb_tx)
             fd = STATE_FDX2_TXRX;
         if (enb_rx and not enb_tx)
@@ -1472,7 +1431,7 @@ void b200_impl::update_atrs(void)
         if (not enb_rx and enb_tx)
             fd = txonly;
         gpio_atr_3000::sptr atr = perif.atr;
-        atr->set_atr_reg(ATR_REG_IDLE, STATE_OFF);
+        atr->set_atr_reg(ATR_REG_IDLE, STATE_RX2_OFF);
         atr->set_atr_reg(ATR_REG_RX_ONLY, rxonly);
         atr->set_atr_reg(ATR_REG_TX_ONLY, txonly);
         atr->set_atr_reg(ATR_REG_FULL_DUPLEX, fd);
@@ -1500,7 +1459,7 @@ void b200_impl::update_enables(void)
                          and bool(_radio_perifs[_fe2].rx_streamer.lock());
     const size_t num_rx = (enb_rx1 ? 1 : 0) + (enb_rx2 ? 1 : 0);
     const size_t num_tx = (enb_tx1 ? 1 : 0) + (enb_tx2 ? 1 : 0);
-    const bool mimo     = num_rx == 2 or num_tx == 2;
+    const uint32_t mimo = (num_rx == 2 or num_tx == 2) ? 1 : 0;
 
     if ((num_rx + num_tx) == 3) {
         throw uhd::runtime_error(
@@ -1512,9 +1471,12 @@ void b200_impl::update_enables(void)
     if ((num_rx + num_tx) == 0)
         _codec_ctrl->set_active_chains(true, false, true, false); // enable something
 
-    // figure out if mimo is enabled based on new state
-    _gpio_state.mimo = (mimo) ? 1 : 0;
-    update_gpio_state();
+    // update MIMO state and re-sync times if necessary
+    if (_gpio_state.mimo != mimo) {
+        _gpio_state.mimo = mimo;
+        update_gpio_state();
+        sync_times();
+    }
 
     // atrs change based on enables
     this->update_atrs();

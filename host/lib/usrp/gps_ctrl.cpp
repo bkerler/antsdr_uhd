@@ -12,12 +12,13 @@
 #include <stdint.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/date_time.hpp>
+#include <boost/date_time/posix_time/posix_time_types.hpp>
 #include <boost/format.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/thread.hpp>
+#include <boost/thread/thread_time.hpp>
 #include <boost/tokenizer.hpp>
 #include <chrono>
 #include <ctime>
+#include <mutex>
 #include <regex>
 #include <string>
 #include <thread>
@@ -49,7 +50,7 @@ class gps_ctrl_impl : public gps_ctrl
 {
 private:
     std::map<std::string, std::tuple<std::string, boost::system_time, bool>> sentences;
-    boost::mutex cache_mutex;
+    std::mutex cache_mutex;
     boost::system_time _last_cache_update;
 
     std::string get_sentence(const std::string which,
@@ -63,7 +64,7 @@ private:
         boost::posix_time::time_duration age;
 
         if (wait_for_next) {
-            boost::lock_guard<boost::mutex> lock(cache_mutex);
+            std::lock_guard<std::mutex> lock(cache_mutex);
             update_cache();
             // mark sentence as touched
             if (sentences.find(which) != sentences.end())
@@ -71,7 +72,7 @@ private:
         }
         while (1) {
             try {
-                boost::lock_guard<boost::mutex> lock(cache_mutex);
+                std::lock_guard<std::mutex> lock(cache_mutex);
 
                 // update cache if older than a millisecond
                 if (now - _last_cache_update > milliseconds(1)) {
@@ -153,42 +154,20 @@ private:
 
             if (msg.length() < 6) {
                 UHD_LOGGER_WARNING("GPS")
-                    << __FUNCTION__ << ": Short GPSDO string: " << msg;
+                    << UHD_FUNCTION << "(): Short GPSDO string: " << msg;
                 continue;
             }
-            if(_mpsdr){
-                if(is_nmea_checksum_ok(msg)){
-                    if(msg.substr(1,5) == "GNRMC"){
-                    std::string oldSubstring = "$GNRMC";
-                    std::string newSubstring = "$GPRMC";
-                    size_t found = msg.find(oldSubstring);
-                    if (found != std::string::npos) {
-                        msg.replace(found, oldSubstring.length(), newSubstring);
-                    }
-                    }
-                    if(msg.substr(1,5) == "GNGGA"){
-                        std::string oldSubstring = "$GNGGA";
-                        std::string newSubstring = "$GPGGA";
-                        size_t found = msg.find(oldSubstring);
-                        if (found != std::string::npos) {
-                            msg.replace(found, oldSubstring.length(), newSubstring);
-                        }
-                    }
-                    msgs[msg.substr(1, 5)] = msg;
-                }
-            }else{
-                // Look for SERVO message
-                if (std::regex_search(
-                        msg, servo_regex, std::regex_constants::match_continuous)) {
-                    msgs["SERVO"] = msg;
-                } else if (std::regex_match(msg, gp_msg_regex) and is_nmea_checksum_ok(msg)) {
-                    msgs[msg.substr(1, 5)] = msg;
-                } else {
-                    UHD_LOGGER_WARNING("GPS")
-                        << __FUNCTION__ << ": Malformed GPSDO string: " << msg;
-                }
+
+            // Look for SERVO message
+            if (std::regex_search(
+                    msg, servo_regex, std::regex_constants::match_continuous)) {
+                msgs["SERVO"] = msg;
+            } else if (std::regex_match(msg, gp_msg_regex) and is_nmea_checksum_ok(msg)) {
+                msgs[msg.substr(1, 5)] = msg;
+            } else {
+                UHD_LOGGER_WARNING("GPS")
+                    << UHD_FUNCTION << "(): Malformed GPSDO string: " << msg;
             }
-            
         }
 
         boost::system_time time = boost::get_system_time();
@@ -203,54 +182,16 @@ private:
         _last_cache_update = time;
     }
 
-    std::string hexToString(const std::string& hexString)
-    {
-        std::stringstream ss(hexString);
-        std::string byteString;
-        std::string result;
-
-        while (ss >> byteString)
-        {
-            int byteValue = std::stoi(byteString, nullptr, 16);
-            result.push_back(static_cast<char>(byteValue));
-        }
-        result.push_back('\r');
-        result.push_back('\n');
-
-        return result;
-    }
-
 public:
-    gps_ctrl_impl(uart_iface::sptr uart,bool is_mp) : _uart(uart), _gps_type(GPS_TYPE_NONE)
+    gps_ctrl_impl(uart_iface::sptr uart) : _uart(uart), _gps_type(GPS_TYPE_NONE)
     {
         std::string reply;
         bool i_heard_some_nmea = false, i_heard_something_weird = false;
-        _mpsdr = is_mp;
+
         // first we look for an internal GPSDO
         _flush(); // get whatever junk is in the rx buffer right now, and throw it away
-        _send("*IDN?\r\n"); // request identity from the GPSDO
-        std::this_thread::sleep_for(std::chrono::milliseconds(GPSDO_COMMAND_DELAY_MS));
-        if(_mpsdr){
-            std::vector<std::string> init_cmds;
-            std::vector<std::string> init_cmds_string_hex = {"b5 62 06 01 03 00 f0 03 00 fd 15",
-                                                         "b5 62 06 01 03 00 f0 01 00 fb 11",
-                                                         "b5 62 06 01 03 00 f0 02 00 fc 13",
-                                                         "b5 62 06 01 03 00 f0 03 00 fd 15",
-                                                         "b5 62 06 01 03 00 f0 05 00 ff 19",
-                                                         "b5 62 06 31 20 00 01 01 00 00 00 00 00 00 01 00 \
-                                                          00 00 80 96 98 00 00 00 00 80 00 00 00 80 00 00 \
-                                                          00 00 ef 00 00 00 f7 b0"
-                                                        };
-            for(auto &change:init_cmds_string_hex){
-                std::string result = hexToString(change);
-                init_cmds.push_back(result);
-            }
 
-            for(const auto& cmd:init_cmds){
-                _send(cmd);
-                std::this_thread::sleep_for(std::chrono::milliseconds(GPSDO_COMMAND_DELAY_MS));
-            }
-        }
+        _send("*IDN?\r\n"); // request identity from the GPSDO
 
         // then we loop until we either timeout, or until we get a response that indicates
         // we're a JL device maximum response time was measured at ~320ms, so we set the
@@ -265,7 +206,7 @@ public:
                 or reply.find("GPSTCXO") != std::string::npos) {
                 _gps_type = GPS_TYPE_INTERNAL_GPSDO;
                 break;
-            } else if (reply.substr(0, 3) == "$GP" or reply.substr(0,3) == "$GN") {
+            } else if (reply.substr(0, 3) == "$GP") {
                 i_heard_some_nmea = true; // but keep looking
             } else if (not reply.empty()) {
                 // wrong baud rate or firmware still initializing
@@ -472,13 +413,12 @@ private:
     }
 
     enum { GPS_TYPE_INTERNAL_GPSDO, GPS_TYPE_GENERIC_NMEA, GPS_TYPE_NONE } _gps_type;
-    bool _mpsdr;
 };
 
 /***********************************************************************
  * Public make function for the GPS control
  **********************************************************************/
-gps_ctrl::sptr gps_ctrl::make(uart_iface::sptr uart,bool is_mp)
+gps_ctrl::sptr gps_ctrl::make(uart_iface::sptr uart)
 {
-    return sptr(new gps_ctrl_impl(uart,is_mp));
+    return sptr(new gps_ctrl_impl(uart));
 }

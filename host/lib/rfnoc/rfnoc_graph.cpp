@@ -58,7 +58,24 @@ struct route_info_t
     graph_edge_t src_static_edge;
     graph_edge_t dst_static_edge;
 };
+
 } // namespace
+
+// Define an attorney to limit access to noc_block_base internals
+class rfnoc_graph_impl;
+namespace uhd { namespace rfnoc {
+
+class block_initializer
+{
+    static void post_init(noc_block_base::sptr block)
+    {
+        block->post_init();
+    }
+    friend rfnoc_graph_impl;
+};
+
+}} // namespace uhd::rfnoc
+
 
 class rfnoc_graph_impl : public rfnoc_graph
 {
@@ -211,7 +228,7 @@ public:
         size_t src_port,
         const block_id_t& dst_blk,
         size_t dst_port,
-        bool skip_property_propagation) override
+        bool is_back_edge) override
     {
         if (!has_block(src_blk)) {
             throw uhd::lookup_error(
@@ -229,7 +246,7 @@ public:
             get_block(dst_blk),
             dst_port,
             edge_type,
-            skip_property_propagation);
+            is_back_edge);
     }
 
     void disconnect(const block_id_t& src_blk,
@@ -718,6 +735,7 @@ private:
             make_args_uptr->num_output_ports = block_info.num_outputs;
             make_args_uptr->mtu =
                 (1 << block_info.data_mtu) * chdr_w_to_bits(mb.get_chdr_w()) / 8;
+            make_args_uptr->chdr_w             = mb.get_chdr_w();
             make_args_uptr->reg_iface          = block_reg_iface;
             make_args_uptr->tb_clk_iface       = tb_clk_iface;
             make_args_uptr->ctrlport_clk_iface = ctrlport_clk_iface;
@@ -730,6 +748,7 @@ private:
             try {
                 _block_registry->register_block(
                     block_factory_info.factory_fn(std::move(make_args_uptr)));
+                block_initializer::post_init(_block_registry->get_block(block_id));
             } catch (...) {
                 UHD_LOG_ERROR(
                     LOG_ID, "Error during initialization of block " << block_id << "!");
@@ -804,10 +823,10 @@ private:
         std::shared_ptr<node_t> dst_blk,
         size_t dst_port,
         graph_edge_t::edge_t edge_type,
-        bool skip_property_propagation)
+        bool is_back_edge)
     {
         graph_edge_t edge_info(
-            src_port, dst_port, edge_type, not skip_property_propagation);
+            src_port, dst_port, edge_type, not is_back_edge);
         edge_info.src_blockid = src_blk->get_unique_id();
         edge_info.dst_blockid = dst_blk->get_unique_id();
         _graph->connect(src_blk.get(), dst_blk.get(), edge_info);
@@ -1088,5 +1107,5 @@ rfnoc_graph::sptr rfnoc_graph::make(const uhd::device_addr_t& device_addr)
         throw uhd::key_error(std::string("No RFNoC devices found for ----->\n")
                              + device_addr.to_pp_string());
     }
-    return std::make_shared<rfnoc_graph_impl>(dev, device_addr);
+    return detail::make_rfnoc_graph(dev, device_addr);
 }

@@ -13,6 +13,11 @@
 #include <arpa/inet.h>
 #include <memory>
 
+// The DPDK function rte_mbuf_to_priv() is experimental and generates a warning.
+// This pragma disables that warning since it is expected
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
 using namespace uhd::transport;
 using namespace uhd::transport::dpdk;
 
@@ -49,8 +54,16 @@ udp_dpdk_link::udp_dpdk_link(dpdk::port_id_t port_id,
 
     // Validate params
     const size_t max_frame_size = _port->get_mtu() - dpdk::HDR_SIZE_UDP_IPV4;
-    UHD_ASSERT_THROW(params.send_frame_size <= max_frame_size);
-    UHD_ASSERT_THROW(params.recv_frame_size <= max_frame_size);
+    if (params.send_frame_size > max_frame_size ||
+        params.recv_frame_size > max_frame_size) {
+        UHD_LOGGER_ERROR("DPDK")
+            << boost::format("recv_frame_size=%d, send_frame_size=%d, max_frame_size=%d, "
+                             "HDR_SIZE_UDP_IPV4=%d")
+                   % params.recv_frame_size % params.send_frame_size % max_frame_size
+                   % dpdk::HDR_SIZE_UDP_IPV4;
+        throw uhd::assertion_error(
+            "{ send_frame_size, recv_frame_size } > max_frame_size");
+    }
 
     // Register the adapter
     auto info      = _port->get_adapter_info();
@@ -101,13 +114,13 @@ udp_dpdk_link::sptr udp_dpdk_link::make(const dpdk::port_id_t port_id,
 void udp_dpdk_link::enqueue_recv_mbuf(struct rte_mbuf* mbuf)
 {
     // Get packet size
-    struct udp_hdr* hdr = rte_pktmbuf_mtod_offset(
-        mbuf, struct udp_hdr*, sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr));
-    size_t packet_size = rte_be_to_cpu_16(hdr->dgram_len) - sizeof(struct udp_hdr);
+    struct rte_udp_hdr* hdr = rte_pktmbuf_mtod_offset(
+        mbuf, struct rte_udp_hdr*, sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr));
+    size_t packet_size = rte_be_to_cpu_16(hdr->dgram_len) - sizeof(struct rte_udp_hdr);
     // Prepare the dpdk_frame_buff
     auto buff = new (rte_mbuf_to_priv(mbuf)) dpdk_frame_buff(mbuf);
     buff->header_jump(
-        sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
+        sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr));
     buff->set_packet_size(packet_size);
     // Add the dpdk_frame_buff to the list
     if (_recv_buff_head) {
@@ -155,7 +168,7 @@ frame_buff::uptr udp_dpdk_link::get_send_buff(int32_t /*timeout_ms*/)
     if (mbuf) {
         auto buff = new (rte_mbuf_to_priv(mbuf)) dpdk_frame_buff(mbuf);
         buff->header_jump(
-            sizeof(struct ether_hdr) + sizeof(struct ipv4_hdr) + sizeof(struct udp_hdr));
+            sizeof(struct rte_ether_hdr) + sizeof(struct rte_ipv4_hdr) + sizeof(struct rte_udp_hdr));
         return frame_buff::uptr(buff);
     }
     return frame_buff::uptr();
@@ -169,12 +182,17 @@ void udp_dpdk_link::release_send_buff(frame_buff::uptr buff)
     if (buff_ptr->packet_size()) {
         // Fill in L2 header
         auto local_mac           = _port->get_mac_addr();
-        struct ether_hdr* l2_hdr = rte_pktmbuf_mtod(mbuf, struct ether_hdr*);
-        ether_addr_copy(&_remote_mac, &l2_hdr->d_addr);
-        ether_addr_copy(&local_mac, &l2_hdr->s_addr);
-        l2_hdr->ether_type = rte_cpu_to_be_16(ETHER_TYPE_IPv4);
+        struct rte_ether_hdr* l2_hdr = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr*);
+#if RTE_VER_YEAR > 21 || (RTE_VER_YEAR == 21 && RTE_VER_MONTH == 11)
+        rte_ether_addr_copy(&_remote_mac, &l2_hdr->dst_addr);
+        rte_ether_addr_copy(&local_mac, &l2_hdr->src_addr);
+#else
+        rte_ether_addr_copy(&_remote_mac, &l2_hdr->d_addr);
+        rte_ether_addr_copy(&local_mac, &l2_hdr->s_addr);
+#endif
+        l2_hdr->ether_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
         // Fill in L3 and L4 headers
-        dpdk::fill_udp_hdr(mbuf,
+        dpdk::fill_rte_udp_hdr(mbuf,
             _port,
             _remote_ipv4,
             _local_port,
@@ -196,3 +214,4 @@ void udp_dpdk_link::release_send_buff(frame_buff::uptr buff)
         rte_pktmbuf_free(mbuf);
     }
 }
+#pragma GCC diagnostic pop

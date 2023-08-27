@@ -72,6 +72,10 @@ public:
                                             << " halfbands and "
                                                "max CIC interpolation "
                                             << _cic_max_interp);
+        // This line is not strictly necessary, as ONE_TO_ONE is the default.
+        // We set it make it explicit how this block works. Output packets have
+        // the same size as the input packet.
+        set_mtu_forwarding_policy(forwarding_policy_t::ONE_TO_ONE);
         // Load list of valid interpolation values
         std::set<size_t> interps{1}; // 1 is always a valid interpolation
         for (size_t hb = 0; hb < _num_halfbands; hb++) {
@@ -123,10 +127,9 @@ public:
 
     uhd::freq_range_t get_frequency_range(const size_t chan) const override
     {
-        const double input_rate =
-            _samp_rate_in.at(chan).is_valid() ? _samp_rate_in.at(chan).get() : 1.0;
+        const double output_rate = get_output_rate(chan);
         // TODO add steps
-        return uhd::freq_range_t(-input_rate / 2, input_rate / 2);
+        return uhd::freq_range_t(-output_rate / 2, output_rate / 2);
     }
 
     double get_input_rate(const size_t chan) const override
@@ -241,7 +244,7 @@ private:
          * Add resolvers
          *********************************************************************/
         // Resolver for _interp: this gets executed when the user directly
-        // modifies interp. the desired behaviour is to coerce it first, then
+        // modifies 'interp'. The desired behaviour is to coerce it first, then
         // keep the output rate constant, and re-calculate the input rate.
         add_property_resolver({interp, scaling_in},
             {interp, samp_rate_out, samp_rate_in, scaling_in},
@@ -524,12 +527,17 @@ private:
 
     //! Set the DDS frequency shift the signal to \p requested_freq
     double _set_freq(
-        const double requested_freq, const double input_rate, const size_t chan)
+        const double requested_freq, const double dds_rate, const size_t chan)
     {
+        static int freq_word_width = 24;
         double actual_freq;
         int32_t freq_word;
         std::tie(actual_freq, freq_word) =
-            get_freq_and_freq_word(requested_freq, input_rate);
+            get_freq_and_freq_word(requested_freq, dds_rate, freq_word_width);
+
+        // Only the upper 24 bits of the SR_FREQ_ADDR register are used, so shift the word
+        freq_word <<= (32 - freq_word_width);
+
         _duc_reg_iface.poke32(
             SR_FREQ_ADDR, uint32_t(freq_word), chan, get_command_time(chan));
         return actual_freq;

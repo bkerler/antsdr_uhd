@@ -28,7 +28,7 @@ Using a USB-based device?
 
 Install the MSVC Redistributable Package:
 
-- Download <a href="http://www.microsoft.com/downloads/en/details.aspx?FamilyID=a7b7a05e-6de6-4d3a-a423-37bf0912db84
+- Download <a href="https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#visual-studio-2015-2017-2019-and-2022
 ">MSVC Redistributable Package</a>
 
 \subsection install_win_source Building from source
@@ -50,11 +50,13 @@ Most distributions provide UHD as part of their package management.
 On Debian and Ubuntu systems, this will install the base UHD library, all headers
 and build-specific files, as well as utilities:
 
-    sudo apt-get install libuhd-dev libuhd003 uhd-host
+    sudo apt-get install libuhd-dev uhd-host
 
 On Fedora systems, an equivalent command would be:
 
     sudo yum install uhd uhd-devel
+
+Live CD/DVD/USBs are not supported.
 
 On other distributions, please refer to your package manager's documentation.
 
@@ -62,7 +64,7 @@ On other distributions, please refer to your package manager's documentation.
 
 We provide UHD binary installers for Ubuntu and Fedora users for every stable release.
 Typically, we will provide binaries for latest two LTS versions of Ubuntu, and for the
-latest two versions of Fedora.
+latest two versions of Fedora. Live CD/DVD/USBs are not supported.
 
 The latest versions of these binaries can be downloaded from here: http://files.ettus.com/binaries/uhd_stable/latest_release/
 
@@ -72,7 +74,7 @@ Copy and paste these commands into your terminal. This will install UHD software
 
     sudo add-apt-repository ppa:ettusresearch/uhd
     sudo apt-get update
-    sudo apt-get install libuhd-dev libuhd003 uhd-host
+    sudo apt-get install libuhd-dev uhd-host
 
 \subsubsection install_linux_ourbins_fedora Fedora
 

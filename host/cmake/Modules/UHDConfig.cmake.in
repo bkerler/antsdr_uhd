@@ -39,7 +39,7 @@ if(UHD_DIR)
     list(APPEND UHD_LIBDIR_HINTS ${UHD_DIR}/lib)
 endif()
 
-include(FindPkgConfig)
+find_package(PkgConfig QUIET)
 if(PKG_CONFIG_FOUND)
   if(NOT ${CMAKE_VERSION} VERSION_LESS "2.8.0")
     set(UHD_QUIET "QUIET")
@@ -85,6 +85,10 @@ find_library(
     PATHS /usr/local/lib
           /usr/lib
 )
+
+get_filename_component(UHD_LIB_PATH ${UHD_LIBRARIES} PATH)
+get_filename_component(UHD_BASE_PATH ${UHD_LIB_PATH} PATH)
+get_filename_component(UHD_MODULE_PATH ${UHD_BASE_PATH}/share/uhd/modules ABSOLUTE)
 
 # Set up linker flags for static linking:
 if(UHD_USE_STATIC_LIBS)

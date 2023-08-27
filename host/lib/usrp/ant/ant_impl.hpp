@@ -5,37 +5,39 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 
-#ifndef INCLUDED_B200_IMPL_HPP
-#define INCLUDED_B200_IMPL_HPP
+#ifndef INCLUDED_ANT_IMPL_HPP
+#define INCLUDED_ANT_IMPL_HPP
 
 #include "ant_cores.hpp"
+#include "ant_radio_ctrl_core.hpp"
 #include "ant_uart.hpp"
-#include "uhd/device.hpp"
-#include "uhd/property_tree.hpp"
-#include "uhd/transport/bounded_buffer.hpp"
-#include "uhd/transport/usb_zero_copy.hpp"
-#include "uhd/types/dict.hpp"
-#include "uhd/types/sensors.hpp"
-#include "uhd/types/stream_cmd.hpp"
-#include "uhd/usrp/gps_ctrl.hpp"
-#include "uhd/usrp/mboard_eeprom.hpp"
-#include "uhd/usrp/subdev_spec.hpp"
-#include "uhd/utils/pimpl.hpp"
-#include "uhd/utils/tasks.hpp"
-#include "uhdlib/usrp/common/ad9361_ctrl.hpp"
-#include "uhdlib/usrp/common/ad936x_manager.hpp"
-#include "uhdlib/usrp/common/adf4001_ctrl.hpp"
-#include "uhdlib/usrp/common/recv_packet_demuxer_3000.hpp"
-#include "uhdlib/usrp/cores/gpio_atr_3000.hpp"
-#include "uhdlib/usrp/cores/radio_ctrl_core_3000.hpp"
-#include "uhdlib/usrp/cores/rx_dsp_core_3000.hpp"
-#include "uhdlib/usrp/cores/rx_vita_core_3000.hpp"
-#include "uhdlib/usrp/cores/time_core_3000.hpp"
-#include "uhdlib/usrp/cores/tx_dsp_core_3000.hpp"
-#include "uhdlib/usrp/cores/tx_vita_core_3000.hpp"
-#include "uhdlib/usrp/cores/user_settings_core_3000.hpp"
-#include "uhdlib/usrp/common/pwr_cal_mgr.hpp"
+#include <uhd/device.hpp>
+#include <uhd/property_tree.hpp>
+#include <uhd/transport/bounded_buffer.hpp>
+#include <uhd/transport/usb_zero_copy.hpp>
+#include <uhd/types/dict.hpp>
+#include <uhd/types/sensors.hpp>
+#include <uhd/types/stream_cmd.hpp>
+#include <uhd/usrp/gps_ctrl.hpp>
+#include <uhd/usrp/mboard_eeprom.hpp>
+#include <uhd/usrp/subdev_spec.hpp>
+#include <uhd/utils/pimpl.hpp>
+#include <uhd/utils/tasks.hpp>
+#include <uhdlib/usrp/common/ad9361_ctrl.hpp>
+#include <uhdlib/usrp/common/ad936x_manager.hpp>
+#include <uhdlib/usrp/common/adf4001_ctrl.hpp>
+#include <uhdlib/usrp/common/pwr_cal_mgr.hpp>
+#include <uhdlib/usrp/common/recv_packet_demuxer_3000.hpp>
+#include <uhdlib/usrp/cores/gpio_atr_3000.hpp>
+#include <uhdlib/usrp/cores/rx_dsp_core_3000.hpp>
+#include <uhdlib/usrp/cores/rx_vita_core_3000.hpp>
+#include <uhdlib/usrp/cores/time_core_3000.hpp>
+#include <uhdlib/usrp/cores/tx_dsp_core_3000.hpp>
+#include <uhdlib/usrp/cores/tx_vita_core_3000.hpp>
+#include <uhdlib/usrp/cores/user_settings_core_3000.hpp>
+#include <unordered_map>
 #include <boost/assign.hpp>
+#include <boost/function.hpp>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -53,7 +55,7 @@
 /* microphase */
 enum microphase_produce_t {E310 ,E200 ,ETTUS};
 
-enum b200_product_t { B200, B210, B200MINI, B205MINI };
+enum b200_product_t { ANT, B200, B210, B200MINI, B205MINI };
 
 #define MICROPHASE_ANT_UDP_FIND_PORT 49100
 #define MICROPHASE_ANT_UDP_CTRL_PORT 49200
@@ -92,10 +94,12 @@ typedef struct {
 
 static const uint8_t ANT_FW_COMPAT_NUM_MAJOR = 8;
 static const uint8_t ANT_FW_COMPAT_NUM_MINOR = 0;
-static const uint16_t B200_FPGA_COMPAT_NUM    = 16;
+static const uint16_t ANT_FPGA_COMPAT_NUM    = 16;
 static const uint16_t B205_FPGA_COMPAT_NUM    = 7;
 static const double ANT_BUS_CLOCK_RATE       = 100e6;
 static const uint32_t ANT_GPSDO_ST_NONE      = 0x83;
+static constexpr double ANT_MAX_RATE_USB2    = 53248000; // bytes/s
+static constexpr double ANT_MAX_RATE_USB3    = 500000000; // bytes/s
 
 #define FLIP_SID(sid) (((sid) << 16) | ((sid) >> 16))
 
@@ -120,13 +124,39 @@ static const uint32_t ANT_RX_GPS_UART_SID = FLIP_SID(ANT_TX_GPS_UART_SID);
 static const uint32_t ANT_LOCAL_CTRL_SID = 0x00000040;
 static const uint32_t ANT_LOCAL_RESP_SID = FLIP_SID(ANT_LOCAL_CTRL_SID);
 
+/*static const unsigned char ANT_USB_CTRL_RECV_INTERFACE = 4;
+static const unsigned char ANT_USB_CTRL_RECV_ENDPOINT  = 8;
+static const unsigned char ANT_USB_CTRL_SEND_INTERFACE = 3;
+static const unsigned char ANT_USB_CTRL_SEND_ENDPOINT  = 4;
+
+static const unsigned char ANT_USB_DATA_RECV_INTERFACE = 2;
+static const unsigned char ANT_USB_DATA_RECV_ENDPOINT  = 6;
+static const unsigned char ANT_USB_DATA_SEND_INTERFACE = 1;
+static const unsigned char ANT_USB_DATA_SEND_ENDPOINT  = 2;
+
+// Default recv_frame_size. Must not be a multiple of 512.
+static const int ANT_USB_DATA_DEFAULT_FRAME_SIZE = 8176;
+// recv_frame_size values below this will be upped to this value
+static const int ANT_USB_DATA_MIN_RECV_FRAME_SIZE = 40;
+static const int ANT_USB_DATA_MAX_RECV_FRAME_SIZE = 16360;
+
+static std::vector<uhd::transport::usb_device_handle::vid_pid_pair_t> ant_vid_pid_pairs =
+    boost::assign::list_of(uhd::transport::usb_device_handle::vid_pid_pair_t(
+        ANT_VENDOR_ID, ANT_PRODUCT_ID))(
+        uhd::transport::usb_device_handle::vid_pid_pair_t(
+            ANT_VENDOR_ID, ANT_PRODUCT_ID));
+
+b200_product_t get_ant_product(const uhd::transport::usb_device_handle::sptr& handle,
+    const uhd::usrp::mboard_eeprom_t& mb_eeprom);
+std::vector<uhd::transport::usb_device_handle::sptr> get_ant_device_handles(
+    const uhd::device_addr_t& hint);*/
 
 //! Implementation guts
 class ant_impl : public uhd::device
 {
 public:
     // structors
-    ant_impl(const uhd::device_addr_t &);
+    ant_impl(const uhd::device_addr_t&);
     ~ant_impl(void) override;
 
     // the io interface
@@ -156,7 +186,7 @@ private:
     const bool _enable_user_regs;
 
     // controllers
-    radio_ctrl_core_3000::sptr _local_ctrl;
+    ant_radio_ctrl_core::sptr _local_ctrl;
     uhd::usrp::ad9361_ctrl::sptr _codec_ctrl;
     uhd::usrp::ad936x_manager::sptr _codec_mgr;
     ant_local_spi_core::sptr _spi_iface;
@@ -183,8 +213,8 @@ private:
     struct AsyncTaskData
     {
         std::shared_ptr<async_md_type> async_md;
-        std::weak_ptr<radio_ctrl_core_3000> local_ctrl;
-        std::weak_ptr<radio_ctrl_core_3000> radio_ctrl[2];
+        std::weak_ptr<ant_radio_ctrl_core> local_ctrl;
+        std::weak_ptr<ant_radio_ctrl_core> radio_ctrl[2];
         ant_uart::sptr gpsdo_uart;
     };
     std::shared_ptr<AsyncTaskData> _async_task_data;
@@ -193,11 +223,13 @@ private:
 
     void register_loopback_self_test(uhd::wb_iface::sptr iface);
     void set_mb_eeprom();
+    void check_fw_compat(void);
     void check_fpga_compat(void);
     uhd::usrp::subdev_spec_t coerce_subdev_spec(const uhd::usrp::subdev_spec_t&);
     void update_subdev_spec(const std::string& tx_rx, const uhd::usrp::subdev_spec_t&);
     void update_time_source(const std::string&);
     void set_time(const uhd::time_spec_t&);
+    void set_time_next_pps(const uhd::time_spec_t&);
     void sync_times(void);
     void update_clock_source(const std::string&);
     void update_bandsel(const std::string& which, double freq);
@@ -209,7 +241,7 @@ private:
     // perifs in the radio core
     struct radio_perifs_t
     {
-        radio_ctrl_core_3000::sptr ctrl;
+        ant_radio_ctrl_core::sptr ctrl;
         uhd::usrp::gpio_atr::gpio_atr_3000::sptr atr;
         uhd::usrp::gpio_atr::gpio_atr_3000::sptr fp_gpio;
         time_core_3000::sptr time64;
@@ -226,8 +258,8 @@ private:
     std::vector<radio_perifs_t> _radio_perifs;
 
     // mapping of AD936x frontends (FE1 and FE2) to radio perif index (0 and 1)
-    // FE1 corresponds to the ports labeled "RF B" on the B200/B210
-    // FE2 corresponds to the ports labeled "RF A" on the B200/B210
+    // FE1 corresponds to the ports labeled "RF B" on the ANT
+    // FE2 corresponds to the ports labeled "RF A" on the ANT
     // the mapping is product and revision specific
     size_t _fe1;
     size_t _fe2;
@@ -264,6 +296,7 @@ private:
         NONE     = 3,
         UNKNOWN  = 4
     } _time_source;
+    bool _time_set_with_pps;
 
     void update_gpio_state(void);
 
@@ -365,9 +398,11 @@ private:
 
     static size_t _get_tx_flow_control_window(size_t payload_size,size_t hw_buff_size);
     typedef boost::function<double(void)> tick_rate_retriever_t;
+
     static void _handle_tx_async_msgs(boost::shared_ptr<tx_fc_cache_t> fc_cache,
                                       uhd::transport::zero_copy_if::sptr xport,
                                       tick_rate_retriever_t get_tick_rate);
+
     static uhd::transport::managed_send_buffer::sptr _get_tx_buff_with_flowctrl(
             uhd::task::sptr /*holds ref*/,
             boost::shared_ptr<tx_fc_cache_t> fc_cache,
@@ -376,4 +411,4 @@ private:
             const double timeout);
 };
 
-#endif /* INCLUDED_B200_IMPL_HPP */
+#endif /* INCLUDED_ANT_IMPL_HPP */

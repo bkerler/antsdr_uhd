@@ -27,7 +27,7 @@ constexpr double DEFAULT_MCR = 122.88e6;
 //! Mock MPM server for X410/ZBX
 //
 // This is a mock server that mimicks an X410 with a ZBX daughterboard.
-class x4xx_mock_rpc_server : public x400_rpc_iface, public mpmd_rpc_iface, public dboard_base_rpc_iface, public zbx_rpc_iface
+class x4xx_mock_rpc_server : public x400_rpc_iface, public mpmd_rpc_iface, public dboard_base_rpc_iface, public zbx_rpc_iface, public dio_rpc_iface
 {
 public:
     x4xx_mock_rpc_server(const uhd::device_addr_t& device_info)
@@ -64,7 +64,7 @@ public:
 
     std::vector<std::string> get_gpio_banks() override
     {
-        return {};
+        return {"GPIO0", "GPIO1"};
     }
 
     bool supports_feature(const std::string& feature) override
@@ -114,6 +114,11 @@ public:
     std::vector<int> get_cal_frozen(size_t, size_t) override
     {
         return {};
+    }
+
+    void set_calibration_mode(size_t, size_t, std::string) override
+    {
+        // nop
     }
 
     std::map<std::string, std::vector<uint8_t>> get_db_eeprom(const size_t) override
@@ -169,6 +174,11 @@ public:
             // End of entries
         };
         return spll_map.at(mcr);
+    }
+
+    std::vector<std::map<std::string, std::string>> pop_host_tasks(const std::string&) override
+    {
+        return {};
     }
 
     void enable_iq_swap(const bool,
@@ -288,7 +298,8 @@ public:
         return false;
     }
 
-    void set_dac_mux_enable(size_t /*motherboard_channel_number*/, int /*enable*/) override
+    void set_dac_mux_enable(
+        size_t /*db_number*/, size_t /*chan*/, int /*enable*/) override
     {
         // nop
     }
@@ -313,6 +324,53 @@ public:
         size_t /*over*/) override
     {
         // nop
+    }
+
+    std::vector<std::string> dio_get_supported_voltage_levels(const std::string&) override
+    {
+        return {"OFF", "1V8", "2V5", "3V3"};
+    }
+
+    void dio_set_voltage_level(const std::string&, const std::string&) override
+    {
+        // nop
+    }
+
+    std::string dio_get_voltage_level(const std::string&) override
+    {
+        return "3V3";
+    }
+
+    void dio_set_port_mapping(const std::string&) override
+    {
+        // nop
+    }
+
+    void dio_set_pin_directions(const std::string&, uint32_t) override
+    {
+        // nop
+    }
+
+    void dio_set_external_power(const std::string&, bool) override
+    {
+        // nop
+    }
+
+    std::string dio_get_external_power_state(const std::string&) override
+    {
+        return "OFF";
+    }
+
+    std::map<std::string, std::string> synchronize(
+        const std::map<std::string, std::string>&, bool) override
+    {
+        return {};
+    }
+
+    std::map<std::string, std::string> aggregate_sync_data(
+        const std::list<std::map<std::string, std::string>>& collated_sync_data) override
+    {
+        return collated_sync_data.front();
     }
 
     ///////////////////////////////////////////////////////////////////////////

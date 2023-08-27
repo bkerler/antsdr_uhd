@@ -38,6 +38,16 @@ UHD_INSTALL(PROGRAMS
     DESTINATION ${RUNTIME_DIR}
     COMPONENT utilities
 )
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/usrpctl.py"
+    "${CMAKE_CURRENT_BINARY_DIR}/usrpctl"
+)
+UHD_INSTALL(PROGRAMS
+    ${CMAKE_CURRENT_BINARY_DIR}/usrpctl
+    RENAME usrpctl
+    DESTINATION ${RUNTIME_DIR}
+    COMPONENT utilities
+)
 
 ########################################################################
 # Utilities that get installed into the share path
@@ -102,7 +112,7 @@ foreach(util_source ${util_share_sources_py})
 endforeach(util_source)
 
 #UHD images downloader configuration
-file(READ ${CMAKE_CURRENT_SOURCE_DIR}/../images/manifest.txt CMAKE_MANIFEST_CONTENTS)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/../../images/manifest.txt CMAKE_MANIFEST_CONTENTS)
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/uhd_images_downloader.py.in
     ${CMAKE_CURRENT_BINARY_DIR}/uhd_images_downloader.py
@@ -111,8 +121,8 @@ configure_file(
 # This is a hack to force cmake regenerate uhd_images_downloader.py
 # whenever manifest.txt file changed.
 configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/../images/manifest.txt
-    ${CMAKE_CURRENT_SOURCE_DIR}/../images/manifest.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../images/manifest.txt
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../images/manifest.txt
 COPYONLY)
 
 UHD_INSTALL(PROGRAMS

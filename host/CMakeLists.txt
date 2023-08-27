@@ -18,13 +18,13 @@ project(UHD CXX C)
 enable_testing()
 
 #make sure our local CMake Modules path comes first
-list(INSERT CMAKE_MODULE_PATH 0 ${CMAKE_SOURCE_DIR}/cmake/Modules)
+list(INSERT CMAKE_MODULE_PATH 0 ${UHD_SOURCE_DIR}/cmake/Modules)
 
 ########################################################################
 # UHD Dependency Minimum Versions
 ########################################################################
 set(CMAKE_MIN_VERSION "3.8")
-set(GCC_MIN_VERSION "6.3.0")
+set(GCC_MIN_VERSION "7.3.0")
 set(CLANG_MIN_VERSION "6.0.0")
 set(APPLECLANG_MIN_VERSION "800")
 # Make sure to update the next two in unison:
@@ -34,6 +34,7 @@ set(MSVC_MIN_VERSION_READABLE "15.0")
 # all the build-time Python scripts
 set(PYTHON_MIN_VERSION "3.6")
 # Other deps
+set(SETUPTOOLS_MIN_VERSION "40.0")
 set(BOOST_MIN_VERSION "1.65")
 set(NUMPY_MIN_VERSION "1.11")
 set(RUAMEL.YAML_MIN_VERSION "0.15")
@@ -79,6 +80,7 @@ elseif(${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
     else()
         message(WARNING "\nCannot determine the version of the compiler selected to build UHD (${APPLE_STR}Clang : ${CMAKE_CXX_COMPILER}). This build may or not work. We highly recommend using Apple Clang version ${APPLECLANG_MIN_VERSION} or more recent, or Clang version ${CLANG_MIN_VERSION} or more recent.")
     endif()
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Og")
 elseif(MSVC)
     if(${MSVC_VERSION} VERSION_LESS ${MSVC_MIN_VERSION})
 	message(FATAL_ERROR "\nMSVC version is less than the required minimum. Required: ${MSVC_MIN_VERSION_READABLE}")
@@ -96,6 +98,7 @@ endif()
 # Packaging Variables
 ########################################################################
 
+option(UNDERSCORE_UHD_VERSION "Replace dashes in uhd version with underscores" OFF)
 set(LIBUHD_PKG ${LIBUHD_PKG} CACHE BOOL "Build Debian libuhd003 package")
 set(LIBUHDDEV_PKG ${LIBUHDDEV_PKG} CACHE BOOL "Build Debian libuhd-dev package")
 set(UHDHOST_PKG ${UHDPOST_PKG} CACHE BOOL "Build Debian uhd-host package")
@@ -171,8 +174,8 @@ endif(DEFINED UHD_IMAGES_DIR_WINREG_KEY)
 ########################################################################
 # Local Include Dir
 ########################################################################
-include_directories(${CMAKE_BINARY_DIR}/include)
-include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${UHD_BINARY_DIR}/include)
+include_directories(${UHD_SOURCE_DIR}/include)
 
 ########################################################################
 # Static Lib Configuration
@@ -250,7 +253,7 @@ if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU" OR
 endif()
 
 if(MSVC)
-    include_directories(${CMAKE_SOURCE_DIR}/cmake/msvc)
+    include_directories(${UHD_SOURCE_DIR}/cmake/msvc)
     add_definitions( #stop all kinds of compatibility warnings
         -DWIN32_LEAN_AND_MEAN
         -DVC_EXTRALEAN
@@ -309,33 +312,43 @@ include(UHDLog)
 ########################################################################
 include(UHDPython)
 
-PYTHON_CHECK_MODULE(
-    "Python version ${PYTHON_MIN_VERSION} or greater"
-    "platform" "platform.python_version() >= '${PYTHON_MIN_VERSION}'"
+PYTHON_CHECK_MODULE_VERSION(
+    "compatible Python version"
+    "platform"
+    "platform.python_version()"
+    ${PYTHON_MIN_VERSION}
     HAVE_PYTHON_PLAT_MIN_VERSION
 )
 
-PYTHON_CHECK_MODULE(
-    "Mako templates ${PY_MAKO_MIN_VERSION} or greater"
-    "mako" "mako.__version__ >= '${PY_MAKO_MIN_VERSION}'"
+PYTHON_CHECK_MODULE_VERSION(
+    "Mako templates module"
+    "mako"
+    "mako.__version__"
+    ${PY_MAKO_MIN_VERSION}
     HAVE_PYTHON_MODULE_MAKO
 )
 
-PYTHON_CHECK_MODULE(
-    "requests ${PY_REQUESTS_MIN_VERSION} or greater"
-    "requests" "requests.__version__ >= '${PY_REQUESTS_MIN_VERSION}'"
+PYTHON_CHECK_MODULE_VERSION(
+    "requests module"
+    "requests"
+    "requests.__version__"
+    ${PY_REQUESTS_MIN_VERSION}
     HAVE_PYTHON_MODULE_REQUESTS
 )
 
-PYTHON_CHECK_MODULE(
-    "numpy ${NUMPY_MIN_VERSION} or greater"
-    "numpy" "LooseVersion(numpy.__version__) >= LooseVersion('${NUMPY_MIN_VERSION}')"
+PYTHON_CHECK_MODULE_VERSION(
+    "numpy module"
+    "numpy"
+    "numpy.__version__"
+    ${NUMPY_MIN_VERSION}
     HAVE_PYTHON_MODULE_NUMPY
 )
 
-PYTHON_CHECK_MODULE(
-    "ruamel.yaml ${RUAMEL.YAML_MIN_VERSION} or greater"
-    "ruamel.yaml" "LooseVersion(ruamel.yaml.__version__) >= LooseVersion('${RUAMEL.YAML_MIN_VERSION}')"
+PYTHON_CHECK_MODULE_VERSION(
+    "ruamel.yaml module"
+    "ruamel.yaml"
+    "ruamel.yaml.__version__"
+    ${RUAMEL.YAML_MIN_VERSION}
     HAVE_PYTHON_MODULE_YAML
 )
 
@@ -396,7 +409,7 @@ endif(ENABLE_QEMU_UNITTESTS)
 # Create Uninstall Target
 ########################################################################
 configure_file(
-    ${CMAKE_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in
+    ${UHD_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
 @ONLY)
 
@@ -509,20 +522,20 @@ endif(ENABLE_USB)
 set(UHD_RFNOC_FOUND "TRUE")
 
 configure_file(
-    ${CMAKE_SOURCE_DIR}/cmake/Modules/UHDConfigVersion.cmake.in
-    ${CMAKE_BINARY_DIR}/cmake/Modules/UHDConfigVersion.cmake
+    ${UHD_SOURCE_DIR}/cmake/Modules/UHDConfigVersion.cmake.in
+    ${UHD_BINARY_DIR}/cmake/Modules/UHDConfigVersion.cmake
     @ONLY
 )
 configure_file(
-    ${CMAKE_SOURCE_DIR}/cmake/Modules/UHDConfig.cmake.in
-    ${CMAKE_BINARY_DIR}/cmake/Modules/UHDConfig.cmake
+    ${UHD_SOURCE_DIR}/cmake/Modules/UHDConfig.cmake.in
+    ${UHD_BINARY_DIR}/cmake/Modules/UHDConfig.cmake
     @ONLY
 )
 
 set(uhd_cmake_scripts
-    ${CMAKE_BINARY_DIR}/cmake/Modules/UHDConfig.cmake
-    ${CMAKE_BINARY_DIR}/cmake/Modules/UHDConfigVersion.cmake
-    ${CMAKE_SOURCE_DIR}/cmake/Modules/UHDBoost.cmake
+    ${UHD_BINARY_DIR}/cmake/Modules/UHDConfig.cmake
+    ${UHD_BINARY_DIR}/cmake/Modules/UHDConfigVersion.cmake
+    ${UHD_SOURCE_DIR}/cmake/Modules/UHDBoost.cmake
 )
 
 UHD_INSTALL(
@@ -536,7 +549,7 @@ UHD_INSTALL(
 ########################################################################
 if(DEFINED UHD_IMAGES_SRC_DIR AND EXISTS "${UHD_IMAGES_SRC_DIR}")
     message(STATUS "Reading images from directory `${UHD_IMAGES_SRC_DIR}'")
-    file(GLOB_RECURSE _image_files "${UHD_IMAGES_SRC_DIR}/*")
+    file(GLOB_RECURSE _image_files RELATIVE "${UHD_SOURCE_DIR}" "${UHD_IMAGES_SRC_DIR}/*")
     message(STATUS "These images files will be installed/packaged:")
     foreach(_img ${_image_files})
         message(STATUS "  ${_img}")

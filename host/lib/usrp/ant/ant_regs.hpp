@@ -5,8 +5,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 
-#ifndef INCLUDED_B200_REGS_HPP
-#define INCLUDED_B200_REGS_HPP
+#ifndef INCLUDED_ANT_REGS_HPP
+#define INCLUDED_ANT_REGS_HPP
 
 #include <stdint.h>
 
@@ -96,4 +96,4 @@ static const uint32_t STATE_FDX2_TXRX =
 static const uint32_t STATE_TX2_TXRX = (TX_ENABLE2 | SFDX2_RX | SFDX2_TX | LED_TXRX_TX2);
 
 
-#endif /* INCLUDED_B200_REGS_HPP */
+#endif /* INCLUDED_ANT_REGS_HPP */

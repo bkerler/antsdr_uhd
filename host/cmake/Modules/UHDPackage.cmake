@@ -17,10 +17,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(LINUX TRUE)
 endif()
 
-if(NOT CMAKE_CROSSCOMPILING AND LINUX AND EXISTS "/etc/debian_version")
-    set(DEBIAN TRUE)
-endif()
-
 if(NOT CMAKE_CROSSCOMPILING AND LINUX AND EXISTS "/etc/redhat-release")
     set(REDHAT TRUE)
 endif()
@@ -34,8 +30,6 @@ elseif(APPLE)
     set(CPACK_GENERATOR PackageMaker)
 elseif(WIN32)
     set(CPACK_GENERATOR NSIS)
-elseif(DEBIAN)
-    set(CPACK_GENERATOR DEB)
 elseif(REDHAT)
     set(CPACK_GENERATOR RPM)
 else()
@@ -45,32 +39,25 @@ endif()
 ########################################################################
 # Setup package file name
 ########################################################################
-if(DEBIAN AND LIBUHD_PKG)
-    set(CPACK_PACKAGE_FILE_NAME "libuhd${UHD_VERSION_MAJOR}_${UHD_VERSION}_${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
-elseif(DEBIAN AND LIBUHDDEV_PKG)
-    set(CPACK_PACKAGE_FILE_NAME "libuhd-dev_${UHD_VERSION}_${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
-elseif(DEBIAN AND UHDHOST_PKG)
-    set(CPACK_PACKAGE_FILE_NAME "uhd-host_${UHD_VERSION}_${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
-else()
-    if(DEBIAN OR REDHAT)
-        find_program(LSB_RELEASE_EXECUTABLE lsb_release)
+if(REDHAT)
+    #extract system information by executing the commands
+    execute_process(
+        COMMAND bash -c "source /etc/os-release && echo $ID"
+        OUTPUT_VARIABLE OS_ID OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    execute_process(
+        COMMAND bash -c "source /etc/os-release && echo $VERSION_ID"
+        OUTPUT_VARIABLE VERSION_ID OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
 
-        if(LSB_RELEASE_EXECUTABLE)
-            #extract system information by executing the commands
-            execute_process(
-                COMMAND ${LSB_RELEASE_EXECUTABLE} --short --id
-                OUTPUT_VARIABLE LSB_ID OUTPUT_STRIP_TRAILING_WHITESPACE
-            )
-            execute_process(
-                COMMAND ${LSB_RELEASE_EXECUTABLE} --short --release
-                OUTPUT_VARIABLE LSB_RELEASE OUTPUT_STRIP_TRAILING_WHITESPACE
-            )
-
-            #set a more sensible package name for this system
-            set(CPACK_PACKAGE_FILE_NAME "uhd_${UHD_VERSION}_${LSB_ID}-${LSB_RELEASE}-${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
-        endif(LSB_RELEASE_EXECUTABLE)
-    endif(DEBIAN OR REDHAT)
-endif(DEBIAN AND LIBUHD_PKG)
+    #set a more sensible package name for this system
+    if(UHD_RELEASE_MODE)
+        string(REGEX REPLACE "(.release)$" "" uhd_vers_pretty ${UHD_VERSION})
+        set(CPACK_PACKAGE_FILE_NAME "uhd-${uhd_vers_pretty}-${OS_ID}${VERSION_ID}" CACHE INTERNAL "")
+    else()
+        set(CPACK_PACKAGE_FILE_NAME "uhd-${UHD_VERSION}-${OS_ID}${VERSION_ID}" CACHE INTERNAL "")
+    endif()
+endif(REDHAT)
 
 if(${CPACK_GENERATOR} STREQUAL NSIS)
 
@@ -80,16 +67,20 @@ if(${CPACK_GENERATOR} STREQUAL NSIS)
     check_type_size("void*[8]" BIT_WIDTH BUILTIN_TYPES_ONLY)
     # If CMake option given, specify MSVC version in installer filename
     if(SPECIFY_MSVC_VERSION)
-        if(MSVC90) # Visual Studio 2008 (9.0)
+        if(MSVC_TOOLSET_VERSION EQUAL 90) # Visual Studio 2008 (9.0)
             set(MSVC_VERSION "VS2008")
-        elseif(MSVC10) # Visual Studio 2010 (10.0)
+        elseif(MSVC_TOOLSET_VERSION EQUAL 100) # Visual Studio 2010 (10.0)
             set(MSVC_VERSION "VS2010")
-        elseif(MSVC11) # Visual Studio 2012 (11.0)
+        elseif(MSVC_TOOLSET_VERSION EQUAL 110) # Visual Studio 2012 (11.0)
             set(MSVC_VERSION "VS2012")
-        elseif(MSVC12) # Visual Studio 2013 (12.0)
+        elseif(MSVC_TOOLSET_VERSION EQUAL 120) # Visual Studio 2013 (12.0)
             set(MSVC_VERSION "VS2013")
-        elseif(MSVC14) # Visual Studio 2015 (14.0)
+        elseif(MSVC_TOOLSET_VERSION EQUAL 140) # Visual Studio 2015 (14.0)
             set(MSVC_VERSION "VS2015")
+        elseif(MSVC_TOOLSET_VERSION EQUAL 141) # Visual Studio 2017 (14.1)
+            set(MSVC_VERSION "VS2017")
+        elseif(MSVC_TOOLSET_VERSION EQUAL 142) # Visual Studio 2019 (14.2)
+            set(MSVC_VERSION "VS2019")
         endif()
         set(CPACK_PACKAGE_FILE_NAME "uhd_${UHD_VERSION}_Win${BIT_WIDTH}_${MSVC_VERSION}" CACHE INTERNAL "")
     else()
@@ -106,8 +97,8 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Ettus Research - USRP Hardware Driver")
 set(CPACK_PACKAGE_VENDOR              "Ettus Research (National Instruments)")
 set(CPACK_PACKAGE_CONTACT             "Ettus Research <support@ettus.com>")
 set(CPACK_PACKAGE_VERSION "${UHD_VERSION}")
-set(CPACK_RESOURCE_FILE_WELCOME ${CMAKE_SOURCE_DIR}/README.md)
-set(CPACK_RESOURCE_FILE_LICENSE ${CMAKE_SOURCE_DIR}/LICENSE)
+set(CPACK_RESOURCE_FILE_WELCOME ${UHD_SOURCE_DIR}/README.md)
+set(CPACK_RESOURCE_FILE_LICENSE ${UHD_SOURCE_DIR}/LICENSE)
 
 ########################################################################
 # Setup CPack Source
@@ -155,23 +146,6 @@ set(CPACK_COMPONENT_EXAMPLES_DEPENDS libraries)
 set(CPACK_COMPONENT_TESTS_DEPENDS libraries)
 
 set(CPACK_COMPONENTS_ALL libraries pythonapi headers utilities examples manual doxygen readme images)
-########################################################################
-# Setup CPack Debian
-########################################################################
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libboost-all-dev, python3-requests")
-set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "python3, python3-tk")
-foreach(filename preinst postinst prerm postrm)
-    list(APPEND CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA ${CMAKE_BINARY_DIR}/debian/${filename})
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/debian)
-    configure_file(
-        ${CMAKE_SOURCE_DIR}/cmake/debian/${filename}.in
-        ${CMAKE_BINARY_DIR}/debian/${filename}
-    @ONLY)
-endforeach(filename)
-configure_file(
-    ${CMAKE_SOURCE_DIR}/cmake/debian/watch
-    ${CMAKE_BINARY_DIR}/debian/watch
-@ONLY)
 
 ########################################################################
 # Setup CPack RPM
@@ -179,13 +153,14 @@ configure_file(
 set(CPACK_RPM_SPEC_MORE_DEFINE "%global __python %{__python3}")
 set(CPACK_RPM_PACKAGE_REQUIRES "boost-devel, python3-requests")
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/usr/share/man;/usr/share/man/man1;/usr/lib64/pkgconfig;/usr/lib64/cmake;/usr/lib64/python2.7;/usr/lib64/python2.7/site-packages")
+set(CPACK_RPM_FILE_NAME "$CACHE{CPACK_PACKAGE_FILE_NAME}.rpm")
 foreach(filename post_install post_uninstall pre_install pre_uninstall)
     string(TOUPPER ${filename} filename_upper)
-    list(APPEND CPACK_RPM_${filename_upper}_SCRIPT_FILE ${CMAKE_BINARY_DIR}/redhat/${filename})
-    file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/redhat)
+    list(APPEND CPACK_RPM_${filename_upper}_SCRIPT_FILE ${UHD_BINARY_DIR}/redhat/${filename})
+    file(MAKE_DIRECTORY ${UHD_BINARY_DIR}/redhat)
     configure_file(
-        ${CMAKE_SOURCE_DIR}/cmake/redhat/${filename}.in
-        ${CMAKE_BINARY_DIR}/redhat/${filename}
+        ${UHD_SOURCE_DIR}/cmake/redhat/${filename}.in
+        ${UHD_BINARY_DIR}/redhat/${filename}
     @ONLY)
 endforeach(filename)
 

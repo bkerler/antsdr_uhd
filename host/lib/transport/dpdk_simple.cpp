@@ -129,9 +129,9 @@ public:
 
         // Extract the sender's address. This is only possible because we know
         // the memory layout of the buff
-        struct udp_hdr* udp_hdr_end = (struct udp_hdr*)buff->data();
-        struct ipv4_hdr* ip_hdr_end = (struct ipv4_hdr*)(&udp_hdr_end[-1]);
-        struct ipv4_hdr* ip_hdr     = (struct ipv4_hdr*)(&ip_hdr_end[-1]);
+        struct rte_udp_hdr* rte_udp_hdr_end = (struct rte_udp_hdr*)buff->data();
+        struct rte_ipv4_hdr* ip_hdr_end = (struct rte_ipv4_hdr*)(&rte_udp_hdr_end[-1]);
+        struct rte_ipv4_hdr* ip_hdr     = (struct rte_ipv4_hdr*)(&ip_hdr_end[-1]);
         _last_recv_addr             = ip_hdr->src_addr;
 
         // Extract the buffer data
@@ -162,12 +162,12 @@ private:
     link_params_t _get_default_link_params()
     {
         link_params_t link_params;
-        link_params.recv_frame_size = 8000;
-        link_params.send_frame_size = 8000;
+        link_params.recv_frame_size = 8016;
+        link_params.send_frame_size = 8016;
         link_params.num_recv_frames = 1;
         link_params.num_send_frames = 1;
-        link_params.recv_buff_size  = 8000;
-        link_params.send_buff_size  = 8000;
+        link_params.recv_buff_size  = 8016;
+        link_params.send_buff_size  = 8016;
         return link_params;
     }
 

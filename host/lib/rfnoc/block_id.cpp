@@ -42,9 +42,9 @@ bool block_id_t::is_valid_blockname(const std::string& block_name)
     return std::regex_match(block_name, std::regex(VALID_BLOCKNAME_REGEX));
 }
 
-bool block_id_t::is_valid_block_id(const std::string& block_name)
+bool block_id_t::is_valid_block_id(const std::string& block_id)
 {
-    return std::regex_match(block_name, std::regex(VALID_BLOCKID_REGEX));
+    return std::regex_match(block_id, std::regex(VALID_BLOCKID_REGEX));
 }
 
 std::string block_id_t::to_string() const
@@ -59,14 +59,14 @@ std::string block_id_t::get_local() const
 
 uhd::fs_path block_id_t::get_tree_root() const
 {
-    return str(boost::format("/mboards/%d/xbar/%s") % get_device_no() % get_local());
+    return uhd::fs_path("/blocks") / to_string();
 }
 
 bool block_id_t::match(const std::string& block_str)
 {
     std::cmatch matches;
     if (not std::regex_match(
-            block_str.c_str(), matches, std::regex(VALID_BLOCKID_REGEX))) {
+            block_str.c_str(), matches, std::regex(MATCH_BLOCKID_REGEX))) {
         return false;
     }
     try {

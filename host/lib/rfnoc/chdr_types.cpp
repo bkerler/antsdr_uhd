@@ -99,7 +99,7 @@ size_t ctrl_payload::serialize(uint64_t* buff,
 }
 
 void ctrl_payload::deserialize(const uint64_t* buff,
-    size_t max_size_bytes,
+    size_t buff_size,
     const std::function<uint64_t(uint64_t)>& conv_byte_order)
 {
     // We assume that buff has room to hold the entire packet
@@ -140,7 +140,7 @@ void ctrl_payload::deserialize(const uint64_t* buff,
         }
         data_vtr[i] = get_field_u64<uint32_t>(data_word, LO_DATA_OFFSET, 32);
     }
-    UHD_ASSERT_THROW(ptr <= max_size_bytes);
+    UHD_ASSERT_THROW(ptr <= buff_size);
 }
 
 size_t ctrl_payload::get_length() const
@@ -226,10 +226,10 @@ size_t strs_payload::serialize(uint64_t* buff,
 }
 
 void strs_payload::deserialize(const uint64_t* buff,
-    size_t num_elems,
+    size_t buff_size,
     const std::function<uint64_t(uint64_t)>& conv_byte_order)
 {
-    UHD_ASSERT_THROW(num_elems >= 4);
+    UHD_ASSERT_THROW(buff_size >= 4);
 
     // Read first word
     uint64_t word0 = conv_byte_order(buff[0]);
@@ -313,10 +313,10 @@ size_t strc_payload::serialize(uint64_t* buff,
 }
 
 void strc_payload::deserialize(const uint64_t* buff,
-    size_t num_elems,
+    size_t buff_size,
     const std::function<uint64_t(uint64_t)>& conv_byte_order)
 {
-    UHD_ASSERT_THROW(num_elems >= 2);
+    UHD_ASSERT_THROW(buff_size >= 2);
 
     // Read first word
     uint64_t word0 = conv_byte_order(buff[0]);
@@ -450,7 +450,8 @@ void mgmt_hop_t::deserialize(std::list<uint64_t>& src,
         uint64_t op_word = conv_byte_order(src.front());
         ops_remaining    = static_cast<size_t>(op_word & 0xFF);
         mgmt_op_t op(static_cast<mgmt_op_t::op_code_t>((op_word >> 8) & 0xFF),
-            static_cast<uint64_t>((op_word >> 16)));
+            static_cast<uint64_t>((op_word >> 16)),
+            static_cast<uint8_t>(op_word & 0xFF));
         _ops.push_back(op);
         src.pop_front();
         for (size_t i = 0; i < padding_size; i++) {
@@ -515,14 +516,14 @@ size_t mgmt_payload::serialize(uint64_t* buff,
 }
 
 void mgmt_payload::deserialize(const uint64_t* buff,
-    size_t num_elems,
+    size_t buff_size,
     const std::function<uint64_t(uint64_t)>& conv_byte_order)
 {
-    UHD_ASSERT_THROW(num_elems > 1);
+    UHD_ASSERT_THROW(buff_size > 1);
 
     // We use a list and copy just for ease of implementation
     // These transactions are not performance critical
-    std::list<uint64_t> src_list(buff, buff + (num_elems * (_padding_size + 1)));
+    std::list<uint64_t> src_list(buff, buff + (buff_size * (_padding_size + 1)));
 
     _hops.clear();
 

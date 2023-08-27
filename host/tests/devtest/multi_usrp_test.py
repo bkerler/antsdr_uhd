@@ -292,7 +292,7 @@ def send_waveform(usrp):
     usrp -- Device object to run tests on.
     """
     rate = getattr(usrp, "get_rx_rate")()
-    getattr(usrp, "send_waveform")(numpy.asarray([1, 0, 1, 0]), 5, rate)
+    usrp.send_waveform(numpy.asarray([1, 0, 1, 0], dtype=numpy.complex64), 5, rate)
     return True
 
 
@@ -770,6 +770,37 @@ def get_device_config(usrp_type, device_config_path=None):
                 'set_tx_lo_source',
                 'set_rx_lo_export_enabled',
                 'set_tx_lo_export_enabled',
+            ],
+            'clock_sources': ['internal', 'mboard'],
+        }
+    if usrp_type == 'x440':
+        return {
+            'skip': [
+                # No AGC on FBX
+                'set_rx_agc',
+                # No IQ imbalance on FBX
+                'set_rx_iq_balance',
+                'set_tx_iq_balance',
+                # No DC offset on FBX
+                'set_rx_dc_offset',
+                'set_tx_dc_offset',
+                # No LO source control on FBX
+                'set_rx_lo_source',
+                'set_tx_lo_source',
+                'set_rx_lo_export_enabled',
+                'set_tx_lo_export_enabled',
+                # No Filters on FBX
+                'get_rx_filter',
+                'set_rx_filter',
+                'get_rx_filter_names',
+                'get_tx_filter',
+                'set_tx_filter',
+                'get_tx_filter_names',
+                # No Gain control on FBX, getters return 0, setters do nothing
+                'get_normalized_rx_gain',
+                'set_normalized_rx_gain',
+                'get_normalized_tx_gain',
+                'set_normalized_tx_gain',
             ],
             'clock_sources': ['internal', 'mboard'],
         }

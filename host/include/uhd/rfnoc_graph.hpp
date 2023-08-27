@@ -172,11 +172,15 @@ public:
      * Note you need to also call this on statically connected blocks if you
      * desire to use them.
      *
+     * Connections that are made using this API call will be listed when calling
+     * enumerate_active_connections().
+     *
      * \param src_blk The block ID of the source block to connect.
      * \param src_port The port of the source block to connect.
      * \param dst_blk The block ID of the destination block to connect to.
      * \param dst_port The port of the destination block to connect to.
-     * \param skip_property_propagation Skip property propagation for this edge
+     * \param is_back_edge Flag this edge as a back-edge.
+     *        See also \ref props_graph_resolution_back_edges.
      *
      * \throws uhd::routing_error if the source or destination ports are
      *                            statically connected to a *different* block
@@ -185,7 +189,7 @@ public:
         size_t src_port,
         const block_id_t& dst_blk,
         size_t dst_port,
-        bool skip_property_propagation = false) = 0;
+        bool is_back_edge = false) = 0;
 
     /*! Connect TX streamer to an input of an NoC block
      *
@@ -225,6 +229,9 @@ public:
      * \p dst_blk.  This will logically disconnect the blocks, but the physical
      * connection will not be changed until a new connection is made on the source
      * port.
+     *
+     * Disconnected edges will no longer be listed in
+     * enumerate_active_connections().
      *
      * \param src_blk The block ID of the source block to disconnect.
      * \param src_port The port of the source block to disconnect.
@@ -285,11 +292,19 @@ public:
 
     /*! Enumerate all the possible static connections in the graph
      *
+     * A static connection is a connection that is statically connected in
+     * hardware. Note that static connections also need to be declared using
+     * connect() if an application wants to use them, or they won't be available
+     * for property propagation or any other graph mechanism.
+     *
      * \return A vector containing all the static edges in the graph.
      */
     virtual std::vector<graph_edge_t> enumerate_static_connections() const = 0;
 
     /*! Enumerate all the active connections in the graph
+     *
+     * An active connection is a connection which was previously created by
+     * calling connect().
      *
      * \return A vector containing all the active edges in the graph.
      */
@@ -344,29 +359,57 @@ public:
     /**************************************************************************
      * Hardware Control
      *************************************************************************/
+    /*! Return the number of motherboards in this graph
+     *
+     * Methods that take a motherboard index (e.g., get_mb_controller()) will error out if
+     * an index is passed that is greater or equal to this number of motherboards.
+     *
+     * \return the number of motherboards in this graph
+     */
     virtual size_t get_num_mboards() const = 0;
-    //! Return a reference to a motherboard controller
-    //
-    // See also uhd::rfnoc::mb_controller
+
+    /*! Return a reference to a motherboard controller
+     *
+     * See also uhd::rfnoc::mb_controller
+     *
+     * \param mb_index The index of the motherboard in the graph, 0 if only one device is
+     *                 used.
+     *
+     * \return a reference to the motherboard controller at index mb_index
+     */
     virtual std::shared_ptr<mb_controller> get_mb_controller(
         const size_t mb_index = 0) = 0;
 
     /*! Run any routines necessary to synchronize devices
      *
      * The specific implementation of this call are device-specific. In all
-     * cases, it will set the time to a common value.
+     * cases, it will set the motherboard time to a common value, if devices
+     * share a common reference. Depending on the hardware it may run other
+     * algorithms to synchronize individual hardware components.
      *
      * Any application that requires any kind of phase or time alignment (if
-     * supported by the hardware) must call this before operation.
+     * supported by the hardware) must call this before operation. Note that
+     * during the initialization of an rfnoc_graph, this method is always called
+     * and thus calling it again from an external application is only necessary
+     * when synchronization was previously lost.
+     *
+     * Note that because this is a motherboard-level API, individual LOs may
+     * still be unsynchronized (i.e., not phase-aligned) after calling this.
+     * Typically, to synchronize LOs, it is necessary to tune daughterboard
+     * channels to the same frequency by using a timed command. See \ref sync_phase
+     * for more details.
+     *
+     * Internally, this calls mb_controller::synchronize() with a full list of
+     * motherboard controllers for this rfnoc_graph.
      *
      * \param time_spec The timestamp to be used to sync the devices. It will be
      *                  an input to set_time_next_pps() on the motherboard
      *                  controllers.
      * \param quiet If true, there will be no errors or warnings printed if the
-     *              synchronization happens. This call will always be called
-     *              during initialization, but preconditions might not yet be
-     *              met (e.g., the time and reference sources might still be
-     *              internal), and will fail quietly in that case.
+     *              synchronization happens. synchronize_devices() will always
+     *              be called during initialization, but preconditions might not
+     *              yet be met (e.g., the time and reference sources might still
+     *              be `internal`), and will fail quietly in that case.
      *
      * \returns the success status of this call (true means devices are now
      *          synchronized)

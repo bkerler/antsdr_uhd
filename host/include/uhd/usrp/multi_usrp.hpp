@@ -26,6 +26,7 @@
 
 #include <uhd/config.hpp>
 #include <uhd/device.hpp>
+#include <uhd/extension/extension.hpp>
 #include <uhd/rfnoc/mb_controller.hpp>
 #include <uhd/rfnoc/radio_control.hpp>
 #include <uhd/types/filters.hpp>
@@ -233,6 +234,11 @@ public:
 
     /*!
      * Get the current time in the usrp time registers.
+     *
+     * For RFNoC devices with multiple timekeepers, this returns the time of the first
+     * timekeeper. To access specific timekeepers, use the corresponding RFNoC APIs
+     * (e.g., mb_controller::get_timekeeper()).
+     *
      * \param mboard which motherboard to query
      * \return a timespec representing current usrp time
      */
@@ -240,6 +246,11 @@ public:
 
     /*!
      * Get the time when the last pps pulse occurred.
+     *
+     * For RFNoC devices with multiple timekeepers, this returns the time of the first
+     * timekeeper. To access specific timekeepers, use the corresponding RFNoC APIs
+     * (e.g., mb_controller::get_timekeeper()).
+     *
      * \param mboard which motherboard to query
      * \return a timespec representing the last pps
      */
@@ -616,6 +627,31 @@ public:
      * \throws uhd::not_implemented_error if not on an RFNoC device.
      */
     virtual uhd::rfnoc::radio_control& get_radio_control(const size_t chan = 0) = 0;
+
+    /*! Get a handle to any RF extension objects which may exist.
+     *
+     * \param trx The TX/RX direction
+     * \param chan The channel index
+     * \returns A pointer to the extension matching the given trx/channel or a nullptr if
+     * the extension is not found.
+     */
+    virtual uhd::extension::extension::sptr get_extension(
+        const direction_t trx, const size_t chan) = 0;
+
+    /*! Get a handle to a RF extension object
+     *
+     * This function retrieves a handle to a RF extension object and casts it to
+     * the given type, which must be a derived class of uhd::extension::extension.
+     *
+     * \param trx The TX/RX direction
+     * \param chan The channel index
+     * \returns A pointer to the extension matching the given trx/channel
+     */
+    template <typename T>
+    typename T::sptr get_extension(const direction_t trx, const size_t chan)
+    {
+        return std::dynamic_pointer_cast<T>(get_extension(trx, chan));
+    }
 
     /*******************************************************************
      * RX methods
@@ -1704,8 +1740,8 @@ public:
      * GPIO methods
      ******************************************************************/
 
-    /*!
-     * Enumerate gpio banks on the specified device.
+    /*! Enumerate GPIO banks on the specified device.
+     *
      * \param mboard the motherboard index 0 to M-1
      * \return a list of string for each bank name
      */
@@ -1714,15 +1750,50 @@ public:
     /*! Set a GPIO attribute on a particular GPIO bank.
      *
      * Possible attribute names:
-     *  - CTRL - 1 for ATR mode 0 for GPIO mode
-     *  - DDR - 1 for output 0 for input
+     *  - CTRL - 1 for ATR mode, 0 for GPIO mode
+     *  - DDR - 1 for output, 0 for input
      *  - OUT - GPIO output level (not ATR mode)
      *  - ATR_0X - ATR idle state
      *  - ATR_RX - ATR receive only state
      *  - ATR_TX - ATR transmit only state
      *  - ATR_XX - ATR full duplex state
+     *
+     * A note on bank names: Query get_gpio_banks() for a valid list of arguments
+     * for bank names. Note that RFNoC devices (E3xx, N3xx, X3x0, X410) behave
+     * slightly differently when using this API vs. using the
+     * radio_control::set_gpio_attr() API. For backward-compatibility reasons,
+     * this API does not have a dedicated argument to address a specific radio,
+     * although the aforementioned devices have separate GPIO banks for each
+     * radio. This API thus allows appending the slot name (typically "A" or "B")
+     * to the GPIO bank to differentiate between radios. The following example
+     * shows the difference between the RFNoC and multi_usrp APIs on a USRP N310:
+     * ~~~{.py}
+     * my_usrp = uhd.usrp.MultiUSRP("type=n3xx")
+     * print(my_usrp.get_gpio_banks()) # Will print: FP0A, FP0B
+     * # Now set all pins to GPIO for Radio 1 (note the 'B' in 'FP0B'):
+     * my_usrp.set_gpio_attr("FP0B", "CTRL", 0x000)
+     * # For backwards compatibility, you can omit the 'A', but that will default
+     * # to radio 0. The following lines thus do the same:
+     * my_usrp.set_gpio_attr("FP0", "CTRL", 0x000)
+     * my_usrp.set_gpio_attr("FP0A", "CTRL", 0x000)
+     * ### This is how you do the same thing with RFNoC API:
+     * print(my_usrp.get_radio_control(0).get_gpio_banks()) # Will print: FP0
+     * print(my_usrp.get_radio_control(1).get_gpio_banks()) # Will print: FP0
+     * # Note how the radio controller only has a single bank!
+     * # When accessing the radio directly, we thus can't specify any other bank
+     * # than FP0:
+     * my_usrp.get_radio_control(1).set_gpio_attr("FP0", "CTRL", 0x000)
+     * ~~~
+     *
+     * The \p mask argument can be used to apply \p value only to select pins,
+     * and retain the existing value on the rest. Because of this feature, this
+     * API call will incur two register transactions (one read, one write).
+     *
+     * Note that this API call alone may not be sufficient to configure the
+     * physical GPIO pins. See set_gpio_src() for more details.
+     *
      * \param bank the name of a GPIO bank
-     * \param attr the name of a GPIO attribute
+     * \param attr the name of a GPIO attribute (see list above)
      * \param value the new value for this GPIO bank
      * \param mask the bit mask to effect which pins are changed
      * \param mboard the motherboard index 0 to M-1
@@ -1734,19 +1805,22 @@ public:
         const uint32_t mask = 0xffffffff,
         const size_t mboard = 0) = 0;
 
-    /*!
-     * Get a GPIO attribute on a particular GPIO bank.
+    /*! Get a GPIO attribute on a particular GPIO bank.
+     *
      * Possible attribute names:
-     *  - CTRL - 1 for ATR mode 0 for GPIO mode
-     *  - DDR - 1 for output 0 for input
+     *  - CTRL - 1 for ATR mode, 0 for GPIO mode
+     *  - DDR - 1 for output, 0 for input
      *  - OUT - GPIO output level (not ATR mode)
      *  - ATR_0X - ATR idle state
      *  - ATR_RX - ATR receive only state
      *  - ATR_TX - ATR transmit only state
      *  - ATR_XX - ATR full duplex state
      *  - READBACK - readback input GPIOs
+     *
+     * For bank names, refer to set_gpio_attr().
+     *
      * \param bank the name of a GPIO bank
-     * \param attr the name of a GPIO attribute
+     * \param attr the name of a GPIO attribute (see list above)
      * \param mboard the motherboard index 0 to M-1
      * \return the value set for this attribute
      */
@@ -1757,7 +1831,10 @@ public:
      *
      * This is a different set of banks than those returned from get_gpio_banks().
      * Here, we return a list of banks that can be used as arguments for
-     * get_gpio_src(), get_gpio_srcs(), and set_gpio_src().
+     * get_gpio_src(), get_gpio_srcs(), and set_gpio_src(). These return values
+     * correspond to the physical connectors of the USRP, e.g., for X410, it
+     * will return "GPIO0" and "GPIO1" (see also \ref page_x400_gpio_api). On
+     * X310, it will return a single value, "FP0" (see also \ref xgpio_fpanel_gpio).
      *
      * Some motherboards have GPIO banks that can be driven from different
      * sources, e.g., the N310 can have any radio channel drive the FP-GPIOs,
@@ -1773,8 +1850,8 @@ public:
      * Each of the pins in the chosen bank can be driven from one of the
      * returned sources.
      *
-     * \param bank the name of a GPIO bank. Valid values can be obtained by
-     *        calling get_gpio_src_banks().
+     * \param bank the name of a GPIO bank (connector). Valid values can be
+     *             obtained by calling get_gpio_src_banks().
      * \param mboard the motherboard index 0 to M-1
      * \return a list of strings with each valid source for the chosen bank
      */
@@ -1783,8 +1860,8 @@ public:
 
     /*! Get the current source for each pin in a GPIO bank.
      *
-     * \param bank the name of a GPIO bank. Valid values can be obtained by
-     *        calling get_gpio_src_banks().
+     * \param bank the name of a GPIO bank (connector). Valid values can be
+     *             obtained by calling get_gpio_src_banks().
      * \param mboard the motherboard index 0 to M-1
      * \return a list of strings for current source of each GPIO pin in the
      *         chosen bank. The length of the return value matches the number of
@@ -1798,8 +1875,8 @@ public:
      * Note: The length of the vector must be identical to the number of
      * programmable GPIO pins.
      *
-     * \param bank the name of a GPIO bank. Valid values can be obtained by
-     *        calling get_gpio_src_banks().
+     * \param bank the name of a GPIO bank (connector). Valid values can be
+     *             obtained by calling get_gpio_src_banks().
      * \param src a list of strings specifying the source of each pin in a GPIO bank
      * \param mboard the motherboard index 0 to M-1
      * \throws uhd::key_error if the bank does not exist

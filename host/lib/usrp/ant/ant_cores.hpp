@@ -6,12 +6,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 
-#ifndef INCLUDED_B200_CORES_HPP
-#define INCLUDED_B200_CORES_HPP
+#ifndef INCLUDED_ANT_CORES_HPP
+#define INCLUDED_ANT_CORES_HPP
 
-#include "uhd/utils/noncopyable.hpp"
-#include "uhdlib/usrp/common/adf4001_ctrl.hpp"
-#include "uhdlib/usrp/cores/spi_core_3000.hpp"
+#include <uhd/utils/noncopyable.hpp>
+#include <uhdlib/usrp/common/adf4001_ctrl.hpp>
+#include <uhdlib/usrp/cores/spi_core_3000.hpp>
 #include <memory>
 #include <mutex>
 
@@ -54,4 +54,4 @@ private:
     ant_local_spi_core::sptr _spi;
 };
 
-#endif /* INCLUDED_B200_CORES_HPP */
+#endif /* INCLUDED_ANT_CORES_HPP */
